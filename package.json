@@ -1,0 +1,22 @@
+{
+  "name": "lumen-path",
+  "version": "1.0.0",
+  "description": "A browser puzzle game about bending real light: reflection, refraction, dispersion and polarisation, solved with mirrors you place yourself.",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node tools/serve.js",
+    "relay": "node server/relay.js",
+    "test": "node tools/test-optics.js && node tools/verify.js && node tools/test-content.js",
+    "test:optics": "node tools/test-optics.js",
+    "test:levels": "node tools/verify.js",
+    "test:levels:verbose": "node tools/verify.js -v",
+    "test:content": "node tools/test-content.js",
+    "test:relay": "node tools/test-relay.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["puzzle", "optics", "raytracing", "canvas", "game"],
+  "license": "MIT"
+}

@@ -1,0 +1,18 @@
+# Lumen Path has no build step and no dependencies, so there is very little to
+# ignore. These are the things a contributor's tooling tends to leave behind.
+node_modules/
+npm-debug.log*
+*.tgz
+
+# OS and editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local-only Claude Code settings (launch.json IS committed: it documents how
+# to start the dev server)
+.claude/settings.local.json

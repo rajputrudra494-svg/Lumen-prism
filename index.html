@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#080b14">
+<meta name="description" content="Lumen Path — a puzzle game about bending real light. Reflection, refraction, dispersion and polarisation, solved with mirrors you place yourself.">
+<title>Lumen Path</title>
+<link rel="stylesheet" href="styles/main.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0e18'/%3E%3Cpath d='M3 16h10l6-8 6 8H3' fill='none' stroke='%237ef0ff' stroke-width='2.5' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='16' r='3' fill='%23ff5ec4'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- The entire interface is built by src/game/ui.js into this root. Keeping the
+     markup empty means the UI can be rebuilt from state at any time without
+     depending on hand-written elements existing. -->
+<div id="app"></div>
+
+<noscript>
+  <div class="noscript">
+    <h1>Lumen Path</h1>
+    <p>This game is a real-time optics simulation and needs JavaScript to run.</p>
+  </div>
+</noscript>
+
+<!-- ===========================================================================
+     Load order matters: each file attaches to the shared `LP` global and reads
+     the modules below it at definition time.
+
+     These are classic scripts rather than ES modules on purpose — it means
+     index.html works when opened straight off the filesystem, with no server
+     and no build step, and the exact same files run under Node for the test
+     and level-verification tools in tools/.
+     ======================================================================== -->
+
+<!-- Maths and optics -->
+<script src="src/math/vec2.js"></script>
+<script src="src/optics/spectrum.js"></script>
+<script src="src/optics/materials.js"></script>
+<script src="src/optics/geometry.js"></script>
+<script src="src/optics/elements.js"></script>
+<script src="src/optics/raytracer.js"></script>
+
+<!-- Simulation and presentation -->
+<script src="src/engine/props.js"></script>
+<script src="src/engine/scene.js"></script>
+<script src="src/engine/renderer.js"></script>
+<script src="src/engine/input.js"></script>
+<script src="src/engine/audio.js"></script>
+<script src="src/engine/storage.js"></script>
+<script src="src/engine/history.js"></script>
+
+<!-- Content and game systems -->
+<script src="src/game/authoring.js"></script>
+<script src="src/game/levels.js"></script>
+<script src="src/game/share.js"></script>
+<script src="src/game/daily.js"></script>
+<script src="src/game/replay.js"></script>
+<script src="src/game/net.js"></script>
+<script src="src/game/editor.js"></script>
+<script src="src/game/ui.js"></script>
+
+<!-- Boot -->
+<script src="src/main.js"></script>
+
+</body>
+</html>
