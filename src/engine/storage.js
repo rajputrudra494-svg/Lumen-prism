@@ -135,7 +135,8 @@
     reducedMotion: false,
     quality: 'high',
     showHints: true,
-    snapDefault: false
+    snapDefault: false,
+    haptics: true
   };
 
   function loadSettings() {
@@ -143,6 +144,13 @@
     var out = {};
     for (var k in DEFAULT_SETTINGS) {
       out[k] = Object.prototype.hasOwnProperty.call(s, k) ? s[k] : DEFAULT_SETTINGS[k];
+    }
+    /* Phones get the medium glow on first run: the full-strength blur is the
+     * single most expensive thing drawn, and a battery notices. The player can
+     * still turn it up. */
+    if (!Object.prototype.hasOwnProperty.call(s, 'quality') &&
+        window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+      out.quality = 'medium';
     }
     /* Respect the OS-level reduced-motion preference on first run. */
     if (!Object.prototype.hasOwnProperty.call(s, 'reducedMotion') &&

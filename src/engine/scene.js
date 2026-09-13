@@ -173,6 +173,15 @@
     var el = E.create(type, opts);
     el.fromInventory = true;
     el.locked = false;
+    /* A colour or glass the LEVEL chose is part of the puzzle, so the tap
+     * badges that would change it are withheld. Stored as a plain property
+     * so it survives undo snapshots and share codes. */
+    if (slot.preset && !el.fixedProps) {
+      var locks = [];
+      if (slot.preset.color !== undefined) locks.push('color');
+      if (slot.preset.material !== undefined) locks.push('material');
+      if (locks.length) el.fixedProps = locks;
+    }
     scene.elements.push(el);
     scene.byId[el.id] = el;
     slot.used++;

@@ -33,7 +33,11 @@
     sparse:      [174.61, 220.00, 261.63, 329.63, 392.00],
     ticking:     [261.63, 311.13, 349.23, 392.00, 466.16],
     shimmering:  [293.66, 329.63, 392.00, 440.00, 523.25],
-    quiet:       [220.00, 261.63, 329.63, 392.00, 440.00]
+    quiet:       [220.00, 261.63, 329.63, 392.00, 440.00],
+    /* Obsidian Spire: a minor pentatonic with a flattened second -- tense. */
+    ominous:     [207.65, 220.00, 261.63, 277.18, 329.63],
+    /* Event Horizon: wide fifths, nothing to resolve to. */
+    cosmic:      [196.00, 293.66, 392.00, 587.33, 783.99]
   };
 
   function unlock() {

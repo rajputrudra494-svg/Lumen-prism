@@ -36,7 +36,15 @@
       glow: document.createElement('canvas'),
       glowCtx: null,
       dpr: 1,
-      view: { scale: 1, ox: 0, oy: 0, w: WORLD_W, h: WORLD_H },
+      view: { scale: 1, ox: 0, oy: 0, w: WORLD_W, h: WORLD_H, rot: 0 },
+      /* CSS-pixel bands along each edge that the HUD occupies. The world is
+       * fitted INSIDE them, so no level content can sit under a button. */
+      insets: { top: 0, right: 0, bottom: 0, left: 0 },
+      /* Whether a portrait screen may turn the stage sideways. Levels whose
+       * physics has a visible "down" -- pendulums -- switch this off. */
+      allowRotate: true,
+      coarse: typeof window !== 'undefined' && !!window.matchMedia &&
+              window.matchMedia('(pointer: coarse)').matches,
       theme: null,
       quality: (opts && opts.quality) || 'high',
       colorblind: false,
@@ -52,39 +60,79 @@
   }
 
   /* --------------------------------------------------------------------------
-   * Viewport. The world is a fixed 1600x900 stage letterboxed into whatever
-   * the page gives us, so a level looks identical on every device and the
+   * Viewport.
+   *
+   * The world is a fixed 1600x900 stage fitted into whatever part of the page
+   * the HUD leaves free, so a level plays identically on every device and the
    * physics never has to care about screen size.
+   *
+   * PORTRAIT PHONES. Letterboxing a 16:9 stage into a tall screen wastes most
+   * of it. When a quarter-turn would make the stage meaningfully bigger, the
+   * view rotates instead: world +x runs down the screen and world +y runs from
+   * right to left. Only the DRAWING rotates -- the level, the optics and every
+   * coordinate the game stores are untouched -- and text is counter-rotated so
+   * it still reads upright.
    * ------------------------------------------------------------------------ */
+  function computeView(cssW, cssH, dpr, insets, allowRotate) {
+    var ins = insets || {};
+    var il = (ins.left || 0) * dpr, it = (ins.top || 0) * dpr;
+    var ir = (ins.right || 0) * dpr, ib = (ins.bottom || 0) * dpr;
+    var w = Math.max(1, Math.round(cssW * dpr));
+    var h = Math.max(1, Math.round(cssH * dpr));
+    var aw = Math.max(40, w - il - ir);
+    var ah = Math.max(40, h - it - ib);
+
+    var flat = Math.min(aw / WORLD_W, ah / WORLD_H);
+    var turned = Math.min(aw / WORLD_H, ah / WORLD_W);
+    /* Demand a real gain before rotating, so a near-square window does not
+     * flip back and forth while it is being resized. */
+    var rot = !!allowRotate && turned > flat * 1.15;
+    var sc = rot ? turned : flat;
+    var cx = il + aw / 2, cy = it + ah / 2;
+
+    var view = { scale: sc, w: w, h: h, rot: rot ? 1 : 0 };
+    if (rot) {
+      view.ox = cx + (WORLD_H * sc) / 2;
+      view.oy = cy - (WORLD_W * sc) / 2;
+    } else {
+      view.ox = cx - (WORLD_W * sc) / 2;
+      view.oy = cy - (WORLD_H * sc) / 2;
+    }
+    return view;
+  }
+
   function resize(r) {
     var c = r.canvas;
     var rect = c.getBoundingClientRect();
     var dpr = Math.min(window.devicePixelRatio || 1, r.quality === 'low' ? 1 : 2);
-    var w = Math.max(1, Math.round(rect.width * dpr));
-    var h = Math.max(1, Math.round(rect.height * dpr));
-    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    var view = computeView(rect.width, rect.height, dpr, r.insets, r.allowRotate);
+    if (c.width !== view.w || c.height !== view.h) { c.width = view.w; c.height = view.h; }
     r.dpr = dpr;
+    r.view = view;
 
-    var scale = Math.min(w / WORLD_W, h / WORLD_H);
-    r.view.scale = scale;
-    r.view.ox = (w - WORLD_W * scale) / 2;
-    r.view.oy = (h - WORLD_H * scale) / 2;
-    r.view.w = w; r.view.h = h;
-
-    /* The glow buffer runs at half resolution: it is blurred anyway, and this
-     * roughly quarters the fill cost of the most expensive pass. */
+    /* The glow buffer runs at reduced resolution: it is blurred anyway, and
+     * this roughly quarters the fill cost of the most expensive pass. Only
+     * reallocate when the size actually changes -- assigning a canvas's width
+     * clears and reallocates it even when the value is identical. */
     var gscale = r.quality === 'low' ? 0.4 : 0.5;
-    r.glow.width = Math.max(1, Math.round(w * gscale));
-    r.glow.height = Math.max(1, Math.round(h * gscale));
+    var gw = Math.max(1, Math.round(view.w * gscale));
+    var gh = Math.max(1, Math.round(view.h * gscale));
+    if (r.glow.width !== gw || r.glow.height !== gh) { r.glow.width = gw; r.glow.height = gh; }
     r.glowScale = gscale;
   }
 
-  function toScreen(r, p) {
-    return { x: r.view.ox + p.x * r.view.scale, y: r.view.oy + p.y * r.view.scale };
+  /* World <-> device-pixel mapping for a given view. Pure, so it is testable. */
+  function toScreenView(v, p) {
+    return v.rot ? { x: v.ox - p.y * v.scale, y: v.oy + p.x * v.scale }
+                 : { x: v.ox + p.x * v.scale, y: v.oy + p.y * v.scale };
   }
-  function toWorld(r, p) {
-    return { x: (p.x - r.view.ox) / r.view.scale, y: (p.y - r.view.oy) / r.view.scale };
+  function toWorldView(v, q) {
+    return v.rot ? { x: (q.y - v.oy) / v.scale, y: (v.ox - q.x) / v.scale }
+                 : { x: (q.x - v.ox) / v.scale, y: (q.y - v.oy) / v.scale };
   }
+  function toScreen(r, p) { return toScreenView(r.view, p); }
+  function toWorld(r, p) { return toWorldView(r.view, p); }
+
   /** Convert a pointer event (CSS pixels) to world coordinates. */
   function eventToWorld(r, clientX, clientY) {
     var rect = r.canvas.getBoundingClientRect();
@@ -94,8 +142,53 @@
     });
   }
 
-  function applyWorldTransform(ctx, r) {
-    ctx.setTransform(r.view.scale, 0, 0, r.view.scale, r.view.ox, r.view.oy);
+  /** Point a context at world units, optionally at a buffer scale `k`. */
+  function setWorld(ctx, v, k) {
+    var f = k || 1;
+    var sc = v.scale * f, ox = v.ox * f, oy = v.oy * f;
+    /* Rotated: (x, y) -> (ox - s*y, oy + s*x). */
+    if (v.rot) ctx.setTransform(0, sc, -sc, 0, ox, oy);
+    else ctx.setTransform(sc, 0, 0, sc, ox, oy);
+  }
+
+  function applyWorldTransform(ctx, r) { setWorld(ctx, r.view, 1); }
+
+  /** World units per CSS pixel at the current zoom. */
+  function worldPerCss(r) { return r.dpr / r.view.scale; }
+
+  /**
+   * Gizmo sizes in world units, derived from fixed ON-SCREEN sizes. A finger
+   * needs a much bigger target than a mouse pointer, so coarse pointers get
+   * larger handles, a wider ring and more generous hit areas.
+   */
+  function handleOpts(r, removable) {
+    var wpc = worldPerCss(r);
+    var coarse = !!r.coarse;
+    return {
+      wpc: wpc,
+      pad: (coarse ? 46 : 34) * wpc,
+      radius: (coarse ? 13 : 9) * wpc,
+      hit: (coarse ? 30 : 20) * wpc,
+      body: (coarse ? 22 : 14) * wpc,
+      font: (coarse ? 13 : 12) * wpc,
+      removable: !!removable
+    };
+  }
+
+  /**
+   * Text that stays upright on screen even when the stage is rotated. Every
+   * label drawn in world space goes through here.
+   */
+  function textAt(ctx, r, str, x, y) {
+    if (r.view.rot) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(str, 0, 0);
+      ctx.restore();
+    } else {
+      ctx.fillText(str, x, y);
+    }
   }
 
   /* ==========================================================================
@@ -295,8 +388,10 @@
     var gs = r.glowScale;
     gc.setTransform(1, 0, 0, 1, 0, 0);
     gc.clearRect(0, 0, r.glow.width, r.glow.height);
-    gc.setTransform(r.view.scale * gs, 0, 0, r.view.scale * gs,
-                    r.view.ox * gs, r.view.oy * gs);
+    setWorld(gc, r.view, gs);
+    /* Floor the on-screen width, so a beam on a small phone stage still reads
+     * as a beam rather than a hairline. */
+    var minW = worldPerCss(r);
     gc.globalCompositeOperation = 'lighter';
     gc.lineCap = 'round';
 
@@ -323,7 +418,8 @@
         var col = S.colClamp(S.colNormalize(s.c));
         var alpha = Math.min(1, inten * (wide ? 0.5 : 1.05));
         gc.strokeStyle = S.toCSS(col, wide ? alpha * 0.42 : alpha);
-        gc.lineWidth = wide ? (7 + inten * 12) : (1.6 + inten * 2.6);
+        gc.lineWidth = wide ? Math.max(7 + inten * 12, 6 * minW)
+                            : Math.max(1.6 + inten * 2.6, 2 * minW);
 
         if (r.colorblind && !wide) {
           gc.setLineDash(S.colorSignature(s.c).dash);
@@ -464,7 +560,7 @@
       ctx.font = '600 15px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,120,60,' + (0.55 + 0.4 * Math.sin(r.time * 9)) + ')';
-      ctx.fillText('OVERHEATING', el.x, el.y - E.handleReach(el) - 16);
+      textAt(ctx, r, 'OVERHEATING', el.x, el.y - E.handleReach(el) - 16);
       ctx.restore();
     }
   }
@@ -545,7 +641,7 @@
       ctx.font = '600 16px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = '#fff';
-      ctx.fillText(sig.glyph, el.x, el.y - 14);
+      textAt(ctx, r, sig.glyph, el.x, el.y - 14);
       ctx.restore();
     }
   }
@@ -769,7 +865,8 @@
       ctx.font = '700 15px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = tripped ? '#ff8080' : 'rgba(210,150,150,0.85)';
-      ctx.fillText(tripped ? '!' : '∅', 0, 5);
+      ctx.textBaseline = 'middle';
+      textAt(ctx, r, tripped ? '!' : '∅', 0, 0);
       ctx.restore();
       return;
     }
@@ -822,13 +919,15 @@
       ctx.font = '700 ' + Math.round(el.radius * 0.7) + 'px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = lit ? '#0b0f18' : '#dfe8f5';
-      ctx.fillText(sig.glyph, 0, el.radius * 0.25);
+      ctx.textBaseline = 'middle';
+      textAt(ctx, r, sig.glyph, 0, 0);
     }
     if (req.wavelength) {
-      ctx.font = '600 12px system-ui, sans-serif';
+      ctx.font = '600 ' + Math.round(Math.max(12, 11 * worldPerCss(r))) + 'px system-ui, sans-serif';
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(230,240,255,0.85)';
-      ctx.fillText(req.wavelength + 'nm', 0, el.radius + 18);
+      textAt(ctx, r, req.wavelength + 'nm', 0, el.radius + Math.max(18, 14 * worldPerCss(r)));
     }
     ctx.restore();
   }
@@ -899,18 +998,19 @@
    * ======================================================================= */
   function drawOverlay(r, ctx, theme, scene, state) {
     var accent = theme.accent || '#5ad7ff';
+    var wpc = worldPerCss(r);
 
     /* Live aim preview while dragging or rotating. */
     if (state.preview && state.preview.length) {
       ctx.save();
-      ctx.setLineDash([9, 9]);
-      ctx.lineWidth = 2;
+      ctx.setLineDash([9 * wpc, 9 * wpc]);
+      ctx.lineWidth = Math.max(2, 1.6 * wpc);
       ctx.strokeStyle = hexToRGBA('#ffffff', 0.55);
       ctx.beginPath();
       for (var i = 0; i < state.preview.length; i++) {
-        var s = state.preview[i];
-        ctx.moveTo(s.a.x, s.a.y);
-        ctx.lineTo(s.b.x, s.b.y);
+        var sg = state.preview[i];
+        ctx.moveTo(sg.a.x, sg.a.y);
+        ctx.lineTo(sg.b.x, sg.b.y);
       }
       ctx.stroke();
       ctx.setLineDash([]);
@@ -919,24 +1019,25 @@
 
     /* Ghost of the object about to be dropped. */
     if (state.ghost) {
+      var gr = Math.max(26, 20 * wpc);
+      var gp = state.ghost.p;
       ctx.save();
       ctx.globalAlpha = 0.75;
       ctx.strokeStyle = state.ghost.ok ? hexToRGBA(accent, 0.9) : 'rgba(255,110,110,0.9)';
       ctx.fillStyle = state.ghost.ok ? hexToRGBA(accent, 0.16) : 'rgba(255,110,110,0.14)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([7, 6]);
+      ctx.lineWidth = 2 * wpc;
+      ctx.setLineDash([7 * wpc, 6 * wpc]);
       ctx.beginPath();
-      ctx.arc(state.ghost.p.x, state.ghost.p.y, 26, 0, M.TAU);
+      ctx.arc(gp.x, gp.y, gr, 0, M.TAU);
       ctx.fill();
       ctx.stroke();
       ctx.setLineDash([]);
       if (!state.ghost.ok) {
-        ctx.lineWidth = 3;
+        var gx = gr * 0.42;
+        ctx.lineWidth = 3 * wpc;
         ctx.beginPath();
-        ctx.moveTo(state.ghost.p.x - 11, state.ghost.p.y - 11);
-        ctx.lineTo(state.ghost.p.x + 11, state.ghost.p.y + 11);
-        ctx.moveTo(state.ghost.p.x + 11, state.ghost.p.y - 11);
-        ctx.lineTo(state.ghost.p.x - 11, state.ghost.p.y + 11);
+        ctx.moveTo(gp.x - gx, gp.y - gx); ctx.lineTo(gp.x + gx, gp.y + gx);
+        ctx.moveTo(gp.x + gx, gp.y - gx); ctx.lineTo(gp.x - gx, gp.y + gx);
         ctx.stroke();
       }
       ctx.restore();
@@ -944,67 +1045,108 @@
 
     /* Hint marker: where the reference answer puts the next object. */
     if (state.hint) {
+      var hr = Math.max(30, 24 * wpc);
       ctx.save();
       var pulse = 0.5 + 0.5 * Math.sin(r.time * 4);
       ctx.strokeStyle = 'rgba(255,214,120,' + (0.55 + pulse * 0.45) + ')';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([5, 8]);
+      ctx.lineWidth = 3 * wpc;
+      ctx.setLineDash([5 * wpc, 8 * wpc]);
       ctx.beginPath();
-      ctx.arc(state.hint.x, state.hint.y, 30 + pulse * 8, 0, M.TAU);
+      ctx.arc(state.hint.x, state.hint.y, hr + pulse * 6 * wpc, 0, M.TAU);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.font = '600 13px system-ui, sans-serif';
+      ctx.font = '600 ' + Math.round(Math.max(13, 12 * wpc)) + 'px system-ui, sans-serif';
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(255,224,150,0.95)';
-      ctx.fillText(state.hint.type, state.hint.x, state.hint.y - 44);
+      textAt(ctx, r, state.hint.type, state.hint.x, state.hint.y - hr - 16 * wpc);
       ctx.restore();
     }
 
     var sel = state.selected;
     if (!sel) return;
 
-    /* Selection ring. */
+    var ho = handleOpts(r, state.removable);
+    var ring = E.handleReach(sel) + ho.pad * 0.35;
+
     ctx.save();
+    /* Selection ring. */
     ctx.strokeStyle = hexToRGBA(accent, 0.85);
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 6]);
-    var reach = E.handleReach(sel) + 14;
+    ctx.lineWidth = 2 * wpc;
+    ctx.setLineDash([6 * wpc, 6 * wpc]);
     ctx.beginPath();
-    ctx.arc(sel.x, sel.y, reach, 0, M.TAU);
+    ctx.arc(sel.x, sel.y, ring, 0, M.TAU);
     ctx.stroke();
     ctx.setLineDash([]);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
-    var hs = E.handles(sel);
+    var hs = E.handles(sel, ho);
     for (var h = 0; h < hs.length; h++) {
       var hd = hs[h];
       var active = state.activeHandle === hd.kind;
-      ctx.beginPath();
-      ctx.arc(hd.p.x, hd.p.y, active ? 11 : 8, 0, M.TAU);
-      ctx.fillStyle = hd.kind === 'rotate' ? hexToRGBA(accent, 0.95)
-                    : hd.kind === 'curve' ? 'rgba(255,200,120,0.95)'
-                    : 'rgba(255,255,255,0.92)';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(10,14,22,0.9)';
-      ctx.stroke();
+      var rad = ho.radius * (active ? 1.3 : 1) * (hd.tap ? 1.15 : 1);
 
+      /* Connectors drawn under the knobs. */
       if (hd.kind === 'rotate') {
         ctx.strokeStyle = hexToRGBA(accent, 0.5);
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.5 * wpc;
+        ctx.beginPath(); ctx.moveTo(sel.x, sel.y); ctx.lineTo(hd.p.x, hd.p.y); ctx.stroke();
+      } else if (hd.kind === 'ratio') {
+        ctx.strokeStyle = 'rgba(120,255,190,0.4)';
+        ctx.lineWidth = 3 * wpc;
+        ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(sel.x, sel.y);
-        ctx.lineTo(hd.p.x, hd.p.y);
+        ctx.moveTo(hd.track.a.x, hd.track.a.y);
+        ctx.lineTo(hd.track.b.x, hd.track.b.y);
         ctx.stroke();
+      }
+
+      var fill = 'rgba(255,255,255,0.92)';                        /* resize */
+      if (hd.kind === 'rotate') fill = hexToRGBA(accent, 0.95);
+      else if (hd.kind === 'curve') fill = 'rgba(255,200,120,0.95)';
+      else if (hd.kind === 'ratio') fill = 'rgba(120,255,190,0.95)';
+      else if (hd.kind === 'remove') fill = 'rgba(240,84,84,0.96)';
+      else if (hd.kind === 'flip' || hd.kind === 'material') fill = 'rgba(26,34,52,0.96)';
+      else if (hd.kind === 'color') fill = S.toCSS(S.resolveColor(sel.color), 1);
+
+      ctx.beginPath();
+      ctx.arc(hd.p.x, hd.p.y, rad, 0, M.TAU);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.lineWidth = 2 * wpc;
+      ctx.strokeStyle = hd.tap ? 'rgba(255,255,255,0.85)' : 'rgba(10,14,22,0.9)';
+      ctx.stroke();
+
+      var glyph = hd.kind === 'remove' ? '×' : hd.kind === 'flip' ? '⇄'
+                : hd.kind === 'material' ? 'n' : hd.kind === 'color' ? '↻' : null;
+      if (glyph) {
+        ctx.fillStyle = hd.kind === 'color' ? 'rgba(10,14,22,0.92)' : '#ffffff';
+        ctx.font = '700 ' + (ho.font * 1.3) + 'px system-ui, sans-serif';
+        textAt(ctx, r, glyph, hd.p.x, hd.p.y);
+      }
+
+      if (hd.kind === 'ratio') {
+        var pct = Math.round((sel.ratio === undefined ? 0.5 : sel.ratio) * 100);
+        var lp = { x: hd.p.x + hd.track.u.x * rad * 3.2, y: hd.p.y + hd.track.u.y * rad * 3.2 };
+        ctx.fillStyle = 'rgba(210,255,230,0.95)';
+        ctx.font = '600 ' + ho.font + 'px system-ui, sans-serif';
+        textAt(ctx, r, pct + '% reflected', lp.x, lp.y);
       }
     }
 
-    /* Angle readout while rotating. */
+    /* Angle readout while rotating, on a dark pill at the element's centre --
+     * on touch the finger is on the handle, so the centre is what stays
+     * visible. */
     if (state.activeHandle === 'rotate') {
-      ctx.font = '600 15px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#fff';
-      var deg = Math.round(M.deg(M.wrapAngle2(sel.angle)));
-      ctx.fillText(deg + '°', sel.x, sel.y - reach - 14);
+      var deg = Math.round(M.deg(M.wrapAngle2(sel.angle))) % 360;
+      ctx.beginPath();
+      ctx.arc(sel.x, sel.y, ho.font * 1.9, 0, M.TAU);
+      ctx.fillStyle = 'rgba(8,12,20,0.85)';
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 ' + (ho.font * 1.2) + 'px system-ui, sans-serif';
+      textAt(ctx, r, deg + '°', sel.x, sel.y);
     }
     ctx.restore();
   }
@@ -1082,6 +1224,13 @@
     LIGHT_SPEED: LIGHT_SPEED,
     create: create,
     resize: resize,
+    computeView: computeView,
+    toScreenView: toScreenView,
+    toWorldView: toWorldView,
+    setWorld: setWorld,
+    worldPerCss: worldPerCss,
+    handleOpts: handleOpts,
+    textAt: textAt,
     draw: draw,
     toScreen: toScreen,
     toWorld: toWorld,

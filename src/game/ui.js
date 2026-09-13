@@ -107,7 +107,7 @@
     var canvas = h('canvas#stage', { 'aria-label': 'Optical bench' });
 
     var hudTop = h('div.hud.hud-top', {}, [
-      h('div.hud-left', {}, [
+      ui.els.hudLeft = h('div.hud-left', {}, [
         ui.els.btnMenu = h('button.icon-btn', {
           title: 'Level select (Esc)', onclick: function () { ui.showScreen('levels'); }
         }, [h('span', { html: '☰' })]),
@@ -116,7 +116,7 @@
           ui.els.levelSub = h('div.level-sub', { text: '' })
         ])
       ]),
-      h('div.hud-right', {}, [
+      ui.els.hudRight = h('div.hud-right', {}, [
         ui.els.parBox = h('div.par-box'),
         ui.els.btnHint = h('button.icon-btn', {
           title: 'Hint (H)', onclick: function () { game.hint(); }
@@ -139,19 +139,18 @@
     ui.els.tray = h('div.tray');
     var hudBottom = h('div.hud.hud-bottom', {}, [ui.els.tray]);
 
-    ui.els.props = h('aside.props', { hidden: true });
     ui.els.overlay = h('div.overlay', { hidden: true });
     ui.els.toasts = h('div.toasts', { 'aria-live': 'polite' });
     ui.els.statusStrip = h('div.status-strip', { hidden: true });
-    /* Shown by CSS on portrait phones only. Advisory, never blocking. */
-    ui.els.rotateHint = h('div.rotate-hint', {}, [
+    /* Only shown on a portrait phone when the level cannot turn the stage
+     * sideways (pendulums). Advisory, never blocking. */
+    ui.els.rotateHint = h('div.rotate-hint', { hidden: true }, [
       h('span', { html: '⟳' }), 'Turn your phone sideways for a bigger bench'
     ]);
 
     root.appendChild(h('div.stage-wrap', {}, [canvas, ui.els.statusStrip, ui.els.rotateHint]));
     root.appendChild(hudTop);
     root.appendChild(hudBottom);
-    root.appendChild(ui.els.props);
     root.appendChild(ui.els.overlay);
     root.appendChild(ui.els.toasts);
 
@@ -183,6 +182,12 @@
       if (!lvl) return;
       var chapter = game.chapterOf(lvl);
       ui.els.levelName.textContent = lvl.name;
+      var tags = lvl.tags || [];
+      if (tags.indexOf('boss') >= 0) {
+        ui.els.levelName.appendChild(h('span.boss-chip', {
+          text: tags.indexOf('finale') >= 0 ? 'Final boss' : 'Boss'
+        }));
+      }
       ui.els.levelSub.textContent = (chapter ? chapter.name : '') +
         (lvl.blurb ? ' — ' + lvl.blurb : '');
 
@@ -259,149 +264,51 @@
       });
 
       if (game.armedType) {
-        tray.appendChild(h('div.tray-hint', { text: 'Click the bench to place. Esc to cancel.' }));
+        tray.appendChild(h('div.tray-hint', { text: 'Tap the bench to place it. Tap the piece again to cancel.' }));
       }
     };
 
     /* ==================================================================
-     * Properties panel
+     * Layout: fit the stage inside whatever the HUD leaves free.
+     *
+     * The HUD floats over the canvas, and on a phone it can take a quarter of
+     * the height. Rather than guess, measure the real HUD boxes and hand the
+     * renderer the bands they occupy; it fits (and, in portrait, rotates) the
+     * world inside what is left. So no emitter, sensor or mirror can ever sit
+     * underneath a button on any screen.
      * ================================================================ */
-    ui.refreshProps = function () {
-      var el = game.selected;
-      var panel = ui.els.props;
-      if (!el) { panel.hidden = true; return; }
-      var T = E.TYPES[el.type];
-      panel.hidden = false;
-      clear(panel);
+    ui.measureInsets = function () {
+      var r = game.renderer;
+      if (!r) return;
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var top = 0, right = 0, bottom = 0;
 
-      panel.appendChild(h('div.props-head', {}, [
-        icon(el.type, 22),
-        h('span.props-title', { text: T.name }),
-        h('button.icon-btn.small', {
-          title: 'Deselect', onclick: function () { game.select(null); }
-        }, [h('span', { html: '×' })])
-      ]));
-      panel.appendChild(h('p.props-blurb', { text: T.blurb }));
+      [ui.els.hudLeft, ui.els.hudRight].forEach(function (el) {
+        var b = el.getBoundingClientRect();
+        if (b.height > 0) top = Math.max(top, b.bottom);
+      });
 
-      function slider(label, value, min, max, step, fmt, onInput) {
-        var out = h('span.slider-val', { text: fmt(value) });
-        var input = h('input', {
-          type: 'range', min: min, max: max, step: step, value: value,
-          oninput: function (e) {
-            var v = parseFloat(e.target.value);
-            out.textContent = fmt(v);
-            onInput(v);
-          },
-          onchange: function () { game.commitEdit(); }
-        });
-        return h('label.prop-row', {}, [
-          h('span.prop-label', { text: label }), out, input
-        ]);
+      var tray = ui.els.tray;
+      var tb = tray.getBoundingClientRect();
+      if (tb.width > 0 && tb.height > 0 && tray.childElementCount > 0) {
+        var vertical = window.getComputedStyle(tray).flexDirection === 'column';
+        if (vertical) right = Math.max(0, vw - tb.left);
+        else bottom = Math.max(0, vh - tb.top);
       }
 
-      if (T.caps.rotate) {
-        panel.appendChild(slider('Rotation', M.deg(M.wrapAngle2(el.angle)), 0, 360, 0.5,
-          function (v) { return Math.round(v) + '°'; },
-          function (v) { game.editElement(el, 'angle', M.rad(v)); }));
-      }
-      if (T.caps.axisDial) {
-        panel.appendChild(h('p.prop-note', {
-          text: 'Rotation here is the transmission axis. Malus’ law: only the aligned component gets through.'
-        }));
-      }
-      if (T.caps.resize && el.length !== undefined) {
-        var L = T.limits.length;
-        panel.appendChild(slider('Length', el.length, L[0], L[1], 1,
-          function (v) { return Math.round(v); },
-          function (v) { game.editElement(el, 'length', v); }));
-      }
-      if (T.caps.resize && el.radius !== undefined && T.limits && T.limits.radius) {
-        var Rl = T.limits.radius;
-        panel.appendChild(slider('Size', el.radius, Rl[0], Rl[1], 1,
-          function (v) { return Math.round(v); },
-          function (v) { game.editElement(el, 'radius', v); }));
-      }
-      if (T.caps.curve) {
-        var C = T.limits.curvature;
-        panel.appendChild(slider('Curvature', el.curvature || 0, C[0], C[1], 0.01,
-          function (v) {
-            return v > 0.03 ? 'concave ' + v.toFixed(2)
-                 : v < -0.03 ? 'convex ' + v.toFixed(2) : 'flat';
-          },
-          function (v) { game.editElement(el, 'curvature', v); }));
-      }
-      if (T.caps.ratio) {
-        panel.appendChild(slider('Split ratio', el.ratio, 0.1, 0.9, 0.01,
-          function (v) {
-            return Math.round(v * 100) + '% reflected / ' + Math.round((1 - v) * 100) + '% through';
-          },
-          function (v) { game.editElement(el, 'ratio', v); }));
-      }
-      if (T.caps.material) {
-        panel.appendChild(h('label.prop-row', {}, [
-          h('span.prop-label', { text: 'Material' }),
-          h('select', {
-            onchange: function (e) {
-              game.editElement(el, 'material', e.target.value);
-              game.commitEdit();
-            }
-          }, T.caps.material.map(function (mk) {
-            var mat = LP.Materials.get(mk);
-            return h('option', {
-              value: mk, selected: el.material === mk,
-              text: mat.name + '  (n≈' + LP.Materials.iorAt(mk, 589).toFixed(2) + ')'
-            });
-          }))
-        ]));
-      }
-      if (T.caps.colorize) {
-        var swatches = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta'];
-        panel.appendChild(h('div.prop-row.column', {}, [
-          h('span.prop-label', { text: 'Passes' }),
-          h('div.swatches', {}, swatches.map(function (name) {
-            return h('button.swatch' + (el.color === name ? '.on' : ''), {
-              title: name,
-              style: { background: S.toCSS(S.resolveColor(name)) },
-              onclick: function () {
-                game.editElement(el, 'color', name);
-                game.commitEdit();
-                ui.refreshProps();
-              }
-            });
-          }))
-        ]));
-      }
-      if (T.caps.flip) {
-        panel.appendChild(h('button.wide-btn', {
-          text: 'Flip mirrored face',
-          onclick: function () {
-            game.editElement(el, 'flipped', !el.flipped);
-            game.commitEdit();
-          }
-        }));
-      }
-      if (el.type === 'portal') {
-        panel.appendChild(slider('Exit angle', M.deg(el.exitOffset || 0), -180, 180, 1,
-          function (v) { return Math.round(v) + '°'; },
-          function (v) { game.editElement(el, 'exitOffset', M.rad(v)); }));
-      }
+      r.insets = {
+        top: top + 6,
+        right: right ? right + 6 : 4,
+        bottom: bottom ? bottom + 6 : 4,
+        left: 4
+      };
+      root.style.setProperty('--inset-top', Math.round(r.insets.top) + 'px');
+      root.style.setProperty('--inset-bottom', Math.round(r.insets.bottom) + 'px');
+      root.style.setProperty('--inset-right', Math.round(r.insets.right) + 'px');
+      LP.Renderer.resize(r);
 
-      if (el.fromInventory) {
-        panel.appendChild(h('button.wide-btn.danger', {
-          text: 'Return to tray',
-          onclick: function () { game.removeSelected(); }
-        }));
-      }
-
-      /* Live physics readout for the selected object. */
-      var info = game.inspect(el);
-      if (info) {
-        panel.appendChild(h('div.props-readout', {}, info.map(function (line) {
-          return h('div.readout-line', {}, [
-            h('span.rk', { text: line[0] }), h('span.rv', { text: line[1] })
-          ]);
-        })));
-      }
+      var portraitPhone = vh > vw && vw < 720;
+      ui.els.rotateHint.hidden = !(portraitPhone && !r.allowRotate);
     };
 
     /* ==================================================================
@@ -444,7 +351,6 @@
     ui.refresh = function () {
       ui.refreshHUD();
       ui.refreshTray();
-      ui.refreshProps();
     };
 
     ui.h = h;
@@ -663,6 +569,9 @@
         function (v) { LP.Audio.setEnabled(v); }),
       toggle('Ambient music', 'music', 'A generated pad that changes with each chapter.',
         function (v) { LP.Audio.setMusic(v); }),
+      (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
+        ? toggle('Vibration', 'haptics', 'A short buzz when you place a piece or light a sensor.')
+        : null,
       toggle('Colourblind mode', 'colorblind',
         'Beams also carry a dash pattern, and colour targets show a symbol, so hue is never the only cue.',
         function () { game.applySettings(); }),
@@ -740,17 +649,21 @@
     body.push(h('div.keyhelp', {}, [
       h('h4', { text: 'Controls' }),
       h('dl', {}, [
-        ['Drag body', 'Move an object'],
-        ['Drag ring handle', 'Rotate — hold Shift for 15° steps, Ctrl for 45°'],
-        ['Drag end handle / scroll', 'Resize'],
-        ['Drag amber handle', 'Flex a curved mirror'],
-        ['Two-finger pinch / twist', 'Resize and rotate on touch'],
+        ['Tap tray, then bench', 'Place a piece'],
+        ['Drag the piece', 'Move it'],
+        ['Blue knob', 'Rotate — Shift for 15° steps, Ctrl for 45°'],
+        ['White end knobs / scroll', 'Resize'],
+        ['Amber knob', 'Flex a curved mirror or lens'],
+        ['Green knob  ·  + −', 'Beam splitter ratio'],
+        ['Red × badge  ·  Delete', 'Return the piece to the tray'],
+        ['⇄ badge  ·  F', 'Flip a one-way mirror'],
+        ['↻ badge  ·  C', 'Next filter colour'],
+        ['n badge  ·  M', 'Next type of glass'],
+        ['Pinch / twist', 'Resize and rotate with two fingers'],
         ['Arrow keys', 'Nudge — Shift for fine'],
         ['[ and ]', 'Rotate one degree — Shift for a quarter'],
-        ['Double-click an object', 'Return it to the tray'],
         ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
-        ['R', 'Reset the level'],
-        ['H', 'Hint']
+        ['R  ·  H', 'Reset  ·  hint']
       ].reduce(function (acc, pair) {
         acc.push(h('dt', { text: pair[0] }));
         acc.push(h('dd', { text: pair[1] }));

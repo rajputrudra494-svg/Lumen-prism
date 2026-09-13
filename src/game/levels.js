@@ -865,7 +865,7 @@
     multi({
       id: 'neon-33', chapter: 'neon', name: 'Half and Half',
       blurb: 'The far panel is greedy. The near one burns out if you overfeed it.',
-      hint: 'Select the splitter and drag its ratio dial. It does not have to be an even split.',
+      hint: 'Tap the splitter and slide its green knob. It does not have to be an even split.',
       chains: [],
       extraEmitters: [E(140, 450, 0, 'white', { intensity: 2.2 })],
       extraReceivers: [

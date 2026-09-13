@@ -714,36 +714,108 @@
   }
 
   /* --------------------------------------------------------------------------
-   * UI support: where the drag handles live for a given element.
+   * UI support: the gizmo around a selected element.
+   *
+   * Every control lives ON the bench, attached to the object it changes --
+   * there is no side panel. Two families:
+   *
+   *   drag handles   rotate, resize, curve, ratio
+   *   tap badges     remove (back to tray), flip, colour, material
+   *
+   * `opts` carries sizes in WORLD units, which the renderer derives from a
+   * fixed on-screen size. That is what keeps a handle the same comfortable
+   * thumb-width on a phone as on a monitor, even though the world is drawn at
+   * very different scales on each.
+   *
+   *   opts.pad        distance beyond the element's extent for the outer ring
+   *   opts.removable  show the return-to-tray badge
    * ------------------------------------------------------------------------ */
-  function handles(el) {
+  var COLOR_CYCLE = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'violet', 'magenta'];
+
+  function handles(el, opts) {
+    var o = opts || {};
+    var pad = o.pad === undefined ? 34 : o.pad;
     var T = TYPES[el.type];
     var out = [];
     var c = { x: el.x, y: el.y };
-    if (T.caps.rotate) {
-      var rr = handleReach(el) + 34;
-      out.push({ kind: 'rotate', p: { x: el.x + Math.cos(el.angle - Math.PI / 2) * rr,
-                                      y: el.y + Math.sin(el.angle - Math.PI / 2) * rr } });
+    var reach = handleReach(el);
+    var up = el.angle - Math.PI / 2;
+    var locked = el.fixedProps || [];
+
+    function at(ang, dist) {
+      return { x: el.x + Math.cos(ang) * dist, y: el.y + Math.sin(ang) * dist };
     }
+
+    if (T.caps.rotate) out.push({ kind: 'rotate', p: at(up, reach + pad) });
+
     if (T.caps.resize) {
       if (el.length !== undefined) {
         var e = G.segmentEnds(c, el.angle, el.length);
         out.push({ kind: 'resize', p: e[0], sign: -1 });
         out.push({ kind: 'resize', p: e[1], sign: 1 });
       } else if (el.radius !== undefined) {
-        out.push({ kind: 'resize', p: { x: el.x + Math.cos(el.angle) * el.radius,
-                                        y: el.y + Math.sin(el.angle) * el.radius }, sign: 1 });
+        out.push({ kind: 'resize', p: at(el.angle, el.radius), sign: 1 });
       } else if (el.w !== undefined) {
         var pts = G.rectPolygon(c, el.angle, el.w, el.h);
         out.push({ kind: 'resize', p: pts[2], sign: 1 });
       }
     }
+
     if (T.caps.curve) {
-      var cr = handleReach(el) * 0.55 + 18;
-      out.push({ kind: 'curve', p: { x: el.x + Math.cos(el.angle + Math.PI / 2) * cr,
-                                     y: el.y + Math.sin(el.angle + Math.PI / 2) * cr } });
+      out.push({ kind: 'curve', p: at(el.angle + Math.PI / 2, reach * 0.55 + pad * 0.55) });
+    }
+
+    /* Split ratio: a knob that slides along a short track on the side opposite
+     * the rotate handle. Nearer the plate = more transmitted, further = more
+     * reflected, so the gesture reads as "pull more light off". */
+    if (T.caps.ratio) {
+      var track = ratioTrack(el, pad);
+      var t = ((el.ratio === undefined ? 0.5 : el.ratio) - 0.1) / 0.8;
+      out.push({
+        kind: 'ratio',
+        p: { x: track.a.x + (track.b.x - track.a.x) * t, y: track.a.y + (track.b.y - track.a.y) * t },
+        track: track
+      });
+    }
+
+    /* Tap badges sit on the same ring as the rotate handle, either side of it. */
+    if (o.removable) out.push({ kind: 'remove', tap: true, p: at(up + 0.95, reach + pad) });
+    if (T.caps.flip) {
+      out.push({ kind: 'flip', tap: true, p: at(up - 0.95, reach + pad) });
+    } else if (T.caps.colorize && locked.indexOf('color') < 0) {
+      out.push({ kind: 'color', tap: true, p: at(up - 0.95, reach + pad) });
+    } else if (T.caps.material && locked.indexOf('material') < 0) {
+      out.push({ kind: 'material', tap: true, p: at(up - 0.95, reach + pad) });
     }
     return out;
+  }
+
+  /** The track the ratio knob slides along, from `a` (10%) to `b` (90%). */
+  function ratioTrack(el, pad) {
+    var p = pad === undefined ? 34 : pad;
+    var dir = el.angle + Math.PI / 2;
+    var d0 = p * 0.8;
+    var d1 = d0 + Math.max(p * 2.4, handleReach(el) * 0.9);
+    var ux = Math.cos(dir), uy = Math.sin(dir);
+    return {
+      a: { x: el.x + ux * d0, y: el.y + uy * d0 },
+      b: { x: el.x + ux * d1, y: el.y + uy * d1 },
+      u: { x: ux, y: uy }, d0: d0, d1: d1
+    };
+  }
+
+  /** Ratio implied by a pointer position projected onto the track. */
+  function ratioFromPoint(el, p, pad) {
+    var tr = ratioTrack(el, pad);
+    var d = (p.x - el.x) * tr.u.x + (p.y - el.y) * tr.u.y;
+    var t = M.clamp((d - tr.d0) / (tr.d1 - tr.d0), 0, 1);
+    return Math.round((0.1 + t * 0.8) * 100) / 100;
+  }
+
+  /** Next value in a cycle, used by the colour and material badges. */
+  function nextInCycle(list, current) {
+    var i = list.indexOf(current);
+    return list[(i + 1) % list.length];
   }
 
   /** Roughly how far the element extends from its centre -- for handle layout. */
@@ -812,6 +884,10 @@
     interact: interact,
     handles: handles,
     handleReach: handleReach,
+    ratioTrack: ratioTrack,
+    ratioFromPoint: ratioFromPoint,
+    nextInCycle: nextInCycle,
+    COLOR_CYCLE: COLOR_CYCLE,
     distanceTo: distanceTo,
     clampProp: clampProp,
     serialize: serialize,

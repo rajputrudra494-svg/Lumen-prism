@@ -52,9 +52,11 @@
       renderer: game.renderer,
       scene: function () { return game.scene; },
       onChange: onSceneChange,
-      onSelect: function (el) { game.selected = el; game.ui.refreshProps(); },
+      onSelect: function (el) { game.selected = el; },
       pushHistory: function () { if (game.history) LP.History.push(game.history); },
       placeElement: function (type, p) { return placeElement(type, p); },
+      canRemove: function (el) { return game.canRemove(el); },
+      tapHandle: function (kind, el) { game.tapHandle(kind, el); },
       onRejected: function () {
         game.ui.toast('Not a legal spot — stay inside the marked bays.', 'bad', 1800);
         LP.Audio.error();
@@ -65,9 +67,24 @@
       hint: function () { game.hint(); }
     });
 
-    window.addEventListener('resize', function () {
-      R.resize(game.renderer);
-    });
+    /* The stage is fitted into the space the HUD leaves, and the HUD itself
+     * reflows with the window, so a resize has to re-measure before it
+     * re-fits. Coalesced to one pass per frame -- mobile browsers fire resize
+     * repeatedly while the address bar slides in and out. */
+    var resizeQueued = false;
+    function queueRelayout() {
+      if (resizeQueued) return;
+      resizeQueued = true;
+      requestAnimationFrame(function () {
+        resizeQueued = false;
+        game.ui.measureInsets();
+      });
+      /* rAF may be throttled; make sure the relayout still happens. */
+      setTimeout(function () { if (resizeQueued) { resizeQueued = false; game.ui.measureInsets(); } }, 120);
+    }
+    window.addEventListener('resize', queueRelayout);
+    window.addEventListener('orientationchange', queueRelayout);
+    game.queueRelayout = queueRelayout;
 
     /* Audio must wait for a gesture. */
     ['pointerdown', 'keydown'].forEach(function (evt) {
@@ -95,6 +112,14 @@
       game.ui.refreshHUD();
       game.ui.refreshTray();
     }
+
+    /** A short vibration on devices that support it, if the player allows it. */
+    function buzz(pattern) {
+      if (!game.settings.haptics) return;
+      if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+      try { navigator.vibrate(pattern); } catch (e) { /* not permitted here */ }
+    }
+    game.buzz = buzz;
 
     /**
      * Single place where a new object enters the world, so the editor,
@@ -128,6 +153,7 @@
       game.armedType = null;
       if (el) {
         LP.Audio.click();
+        buzz(10);
         onSceneChange(true);
       } else {
         game.ui.toast('No more of those left.', 'bad');
@@ -161,7 +187,9 @@
 
       Sc.run(game.scene);
       R.restartLight(game.renderer);
-      R.resize(game.renderer);
+      /* A pendulum swings under gravity, so a sideways stage would show it
+       * falling sideways. Those levels stay upright and letterbox instead. */
+      game.renderer.allowRotate = !hasPendulum(game.scene);
 
       var ch = game.chapterOf(level);
       if (ch && LP.Audio.state.started) LP.Audio.setChapter(ch.mood);
@@ -169,8 +197,17 @@
       game.ui.refresh();
       game.ui.hideScreen();
       updateStatusStrip();
+      game.ui.measureInsets();
       return game.scene;
     };
+
+    function hasPendulum(scene) {
+      return scene.elements.some(function (el) {
+        return el.motion && el.motion.type === 'pendulum';
+      }) || (scene.inventory || []).some(function (slot) {
+        return slot.preset && slot.preset.motion && slot.preset.motion.type === 'pendulum';
+      });
+    }
 
     game.loadLevelById = function (id) {
       var lvl = LP.Levels.LEVELS.find(function (l) { return l.id === id; });
@@ -256,7 +293,6 @@
     game.select = function (el) {
       game.selected = el;
       game.input.select(el);
-      game.ui.refreshProps();
     };
 
     game.editElement = function (el, key, value) {
@@ -277,14 +313,79 @@
       LP.Audio.tick();
     };
 
-    game.removeSelected = function () {
-      if (!game.selected || !game.selected.fromInventory) return;
+    /** Can this object be taken off the bench? Player pieces always; in the
+     *  editor's build mode, anything the author placed. */
+    game.canRemove = function (el) {
+      if (!el) return false;
+      if (game.mode === 'editorBuild') return el.type !== 'emitter' || game.scene.emitters.length > 1;
+      if (game.mode === 'replay') return false;
+      if (game.session && !game.session.ownsElement(el)) return false;
+      return !!el.fromInventory;
+    };
+
+    game.removeElement = function (el) {
+      if (!game.canRemove(el)) return;
+      if (game.mode === 'editorBuild' && game.editor) {
+        game.editor.selected = el;
+        if (game.editor.deleteSelected()) {
+          game.scene = game.editor.scene;
+          game.history = LP.History.create(game.scene);
+        }
+        game.select(null);
+        R.restartLight(game.renderer);
+        game.ui.refresh();
+        LP.Audio.drop();
+        buzz(12);
+        return;
+      }
       LP.History.push(game.history);
-      if (game.session) game.session.remove(game.selected);
-      else Sc.remove(game.scene, game.selected);
+      if (game.session) game.session.remove(el);
+      else Sc.remove(game.scene, el);
       game.select(null);
       onSceneChange(true);
       LP.Audio.drop();
+      buzz(12);
+    };
+
+    game.removeSelected = function () { game.removeElement(game.selected); };
+
+    /**
+     * The badges on a selected object -- the on-bench replacement for the old
+     * properties panel. Each one is a single tap with a visible result, and
+     * each announces what it did, because a badge has no room for a label.
+     */
+    game.tapHandle = function (kind, el) {
+      if (!el) return;
+      var T = E.TYPES[el.type];
+      var locked = el.fixedProps || [];
+      if (kind === 'remove') { game.removeElement(el); return; }
+
+      var note = null;
+      if (kind === 'flip' && T.caps.flip) {
+        LP.History.push(game.history);
+        el.flipped = !el.flipped;
+        note = 'Mirrored face flipped';
+      } else if (kind === 'color' && T.caps.colorize && locked.indexOf('color') < 0) {
+        LP.History.push(game.history);
+        el.color = E.nextInCycle(E.COLOR_CYCLE, el.color);
+        note = 'Filter passes ' + el.color;
+      } else if (kind === 'material' && T.caps.material && locked.indexOf('material') < 0) {
+        LP.History.push(game.history);
+        el.material = E.nextInCycle(T.caps.material, el.material);
+        var mat = LP.Materials.get(el.material);
+        note = mat.name + '  n = ' + LP.Materials.iorAt(el.material, 589).toFixed(2);
+      }
+      if (!note) return;
+
+      E.touch(el);
+      game.scene.dirty = true;
+      game.solveReported = false;
+      R.restartLight(game.renderer);
+      if (game.session) game.session.move(el);
+      game.ui.refreshHUD();
+      game.ui.toast(note, null, 1400);
+      LP.Audio.tick();
+      buzz(8);
     };
 
     game.undo = function () {
@@ -343,34 +444,6 @@
     };
 
     /* ==================================================================
-     * Inspector readout for the properties panel
-     * ================================================================ */
-    game.inspect = function (el) {
-      var out = [];
-      var mat = el.material ? LP.Materials.get(el.material) : null;
-      if (mat && mat.reflect) out.push(['Reflectance', Math.round(mat.reflect * 100) + '%']);
-      if (mat && mat.B > 0.001) {
-        out.push(['Index (n)', LP.Materials.iorAt(el.material, 486).toFixed(3) + ' blue → ' +
-                               LP.Materials.iorAt(el.material, 656).toFixed(3) + ' red']);
-        var crit = LP.Materials.criticalAngle(LP.Materials.iorAt(el.material, 589), 1);
-        if (crit) out.push(['Critical angle', Math.round(M.deg(crit)) + '°']);
-      }
-      if (el.type === 'grating') {
-        var first = Math.asin(Math.min(1, 550 / el.spacing));
-        out.push(['1st order (550nm)', Math.round(M.deg(first)) + '°']);
-      }
-      if (el._prims && el._prims[0] && el._prims[0].kind === 'arc') {
-        var arc = el._prims[0];
-        out.push(['Focal length', Math.round(arc.r / 2) + ' units']);
-      }
-      if (el.thermal && el.motion) {
-        out.push(['Heat', (el.motion.heat || 0).toFixed(2) +
-                          (el.motion.threshold ? ' / ' + el.motion.threshold : '')]);
-      }
-      return out.length ? out : null;
-    };
-
-    /* ==================================================================
      * Solve detection
      * ================================================================ */
     function checkSolve(dt) {
@@ -384,6 +457,7 @@
         if (r.lit && !was) {
           var rc = game.scene.receivers[i];
           LP.Audio.chime(i / Math.max(1, ev.receivers.length));
+          buzz(15);
           R.burst(game.renderer, { x: rc.x, y: rc.y },
                   S.colNormalize(r.color.r + r.color.g + r.color.b > 0.01
                                  ? r.color : { r: 1, g: 1, b: 1 }), 26);
@@ -413,6 +487,7 @@
       var stars = game.hintUsed ? Math.min(2, ev.stars || 1) : (ev.stars || 1);
 
       LP.Audio.fanfare();
+      buzz([20, 60, 35]);
       game.scene.receivers.forEach(function (rc) {
         R.burst(game.renderer, { x: rc.x, y: rc.y }, { r: 1, g: 1, b: 1 }, 34);
       });
@@ -532,9 +607,11 @@
       game.level = game.editor.level;
       game.history = LP.History.create(game.scene);
       game.selected = null;
+      game.renderer.allowRotate = true;
       R.restartLight(game.renderer);
       game.ui.showScreen('editor');
       game.ui.refresh();
+      game.ui.measureInsets();
     };
 
     game.closeEditor = function () {
@@ -740,6 +817,7 @@
           scene: game.scene,
           theme: game.chapterOf(game.level) || LP.Levels.CHAPTERS[0],
           selected: game.selected,
+          removable: game.canRemove(game.selected),
           activeHandle: game.input.activeHandle,
           dragging: game.input.dragging,
           hoverTray: !!game.armedType,
