@@ -18,6 +18,8 @@ something draws a rainbow.
 - [Playing](#playing)
 - [Controls](#controls)
 - [The physics](#the-physics)
+- [The bench and the light](#the-bench-and-the-light)
+- [Phones](#phones)
 - [Project layout](#project-layout)
 - [Tests](#tests)
 - [Levels](#levels)
@@ -48,8 +50,9 @@ browsers refuse `localStorage` on `file://`; the game plays fine either way, but
 it will not remember progress, and the settings screen says so when that
 happens.
 
-Pick an object from the tray, click the bench to place it, then drag its handles
-to aim. A sensor lights when the light arriving at it satisfies its requirement.
+Pick a piece from the tray, tap the bench to place it, then drag the knobs on
+the piece itself to aim — there is no side panel; every control lives on the
+selected piece. A sensor lights when the light arriving at it satisfies its requirement.
 Stars are awarded for solving at or under par:
 
 | Stars | Condition |
@@ -64,22 +67,30 @@ Using a hint caps that level at two stars.
 
 ## Controls
 
-| Input | Action |
+Select a piece and its controls appear around it:
+
+| Control | Action |
 |---|---|
-| Click tray, then bench | Place an object |
-| Drag body | Move |
-| Drag the ring handle | Rotate — **Shift** snaps to 15°, **Ctrl/Cmd** to 45° |
-| Drag an end handle, or scroll | Resize |
-| Drag the amber handle | Flex a curved mirror |
+| Drag the piece | Move |
+| **Blue knob** | Rotate — **Shift** snaps to 15°, **Ctrl/Cmd** to 45°; on touch, angles settle onto 15° steps when within 2.5° |
+| **White end knobs**, or scroll | Resize |
+| **Amber knob** | Flex a curved mirror or lens |
+| **Green knob** (beam splitter) | Slide the reflect/transmit ratio · or `+` `−` |
+| **Red × badge** | Return the piece to the tray · or `Delete` |
+| **⇄ badge** (one-way mirror) | Flip the mirrored face · or `F` |
+| **↻ badge** (filter) | Next colour · or `C` |
+| **n badge** (prism, glass, lens) | Next type of glass · or `M` |
 | Two-finger pinch / twist | Resize and rotate (touch) |
 | Arrow keys | Nudge — **Shift** for fine |
 | `[` `]` | Rotate 1° — **Shift** for a quarter degree |
 | `,` `.` | Shrink / grow |
-| Double-click an object | Return it to the tray |
+| Double-click (mouse) | Return a piece to the tray |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
-| `R` | Reset the level |
-| `H` | Hint |
+| `R` · `H` | Reset the level · hint |
 | `Esc` | Close a panel, or cancel placement |
+
+Colours and glass that a level hands you are part of the puzzle, so their
+badges are hidden on those pieces.
 
 While you drag, a dashed preview line shows where the beam will end up, so you
 can aim without letting go and checking.
@@ -180,6 +191,71 @@ anything is moving.
 
 ---
 
+## The bench and the light
+
+The pieces sit on a wooden optical bench in a dim room, and the room is lit by
+the beams themselves.
+
+**The wood is grown in code**, once per chapter, in `src/engine/bench.js` —
+there are still no image files, so the game works offline and off the
+filesystem. A flat-sawn board shows growth rings sliced at a shallow angle,
+which is a sine of the across-grain position displaced by slow noise. The
+costly noise is evaluated on a coarse grid for one long board; the table is
+then assembled from that board with random offsets, flips, lengths and stain
+per plank, and finished with seams, end joints, knots and a varnish sheen. It
+builds in about 15 ms. Each chapter has its own species and room light — maple
+under cool lab light, walnut by moonlight, charred cedar in the Spire, limed oak
+under violet in the Event Horizon.
+
+**Lighting is a multiply pass.** A low-resolution light map holds the room's
+faint ambient, a hanging lamp, the pool each beam throws onto the boards, the
+splash where it strikes something, and the spill from each lamp's lens. That
+map is blurred and multiplied over the table, so the wood is only as bright as
+the light reaching it — a beam visibly lights up the boards it crosses.
+
+**Beams are drawn as scattered light**, not lines: a crisp core, a halo, and a
+scattering shaft that widens with distance, plus dust motes that glint only
+where a beam passes through them. Scattering strength follows the chapter's fog
+coefficient — the same number the tracer attenuates by — so a room where you
+can see more of the beam from the side really is a room that costs more light.
+Strong beams are tone-mapped (`1 − e^(−1.2 I)`) so several lamps on one path
+glow rather than burn out to flat white.
+
+**This is rendering, not physics.** The tracer still decides exactly where each
+ray goes and how much energy reaches each sensor; what lights a sensor is always
+the crisp core, never the glow around it. That is why all 75 levels still verify
+unchanged.
+
+Hardware is drawn as the real thing: silvered glass whose reflected highlight
+slides as the mirror turns, brass cap screws, black anodised clamps and ring
+mounts, glass with polished edges and internal reflections, a holographic sheen
+on the grating, lamp housings with cooling fins and a lens flare, and brass
+photocells under glass domes. Everything casts a soft shadow away from the work
+light — rotated by hand when the stage is turned, since canvas shadow offsets
+ignore the transform.
+
+---
+
+## Phones
+
+- **The stage fits around the HUD.** The renderer measures the real HUD and tray
+  boxes and fits the world inside what is left, so no lamp or sensor can sit
+  under a button on any screen.
+- **Portrait turns the stage sideways** instead of letterboxing a 16:9 world
+  into a strip — about 2.9× the playable area. Only the drawing rotates; text is
+  counter-rotated to stay upright. Pendulum levels stay upright, because their
+  gravity has a visible direction.
+- **Landscape moves the tray** into a rail down the right-hand edge, and the HUD
+  collapses to one row.
+- **Handles are sized in screen pixels**, with larger targets and hit areas for
+  touch, so they are equally grabbable at any zoom.
+- Optional vibration when you place a piece or light a sensor; phones default
+  to the medium glow setting to spare the battery.
+
+A frame draws in under 1 ms on a desktop and about 3 ms on an emulated phone.
+
+---
+
 ## Project layout
 
 ```
@@ -197,14 +273,15 @@ src/
   engine/
     props.js            Pendulum, turntable, track, orbit, beat, thermal drift
     scene.js            Level runtime, receiver evaluation, stars, undo snapshots
-    renderer.js         Canvas 2D: world pass, additive bloom light pass, overlay
+    bench.js            Procedural wooden tabletop and dust motes
+    renderer.js         Canvas 2D: table, light map, hardware, scattered light, overlay
     input.js            Pointer, touch and keyboard; gizmos and gestures
     audio.js            Web Audio synthesis — no audio assets
     storage.js          localStorage with in-memory fallback; backend stubs
     history.js          Undo / redo
   game/
     authoring.js        Level-authoring helpers, including the tracer probes
-    levels.js           59 levels across 9 chapters
+    levels.js           75 levels across 11 chapters
     share.js            URL-safe level codes
     daily.js            Procedural daily challenge
     replay.js           Ghost replay and clip export
@@ -229,7 +306,7 @@ tools with no shim and no build.
 ```bash
 node tools/test-optics.js    # 137 physics assertions
 node tools/verify.js         # every level is solvable
-node tools/test-content.js   # daily generation + share round trips
+node tools/test-content.js   # dailies, share round trips, editor, difficulty proofs
 node tools/test-relay.js     # multiplayer protocol (needs the relay running)
 ```
 
@@ -239,12 +316,19 @@ Beer–Lambert, energy conservation across a splitter, and a pendulum period
 against the finite-amplitude correction `T ≈ T₀(1 + θ₀²/16)`. A regression shows
 up as a number that no longer matches theory.
 
-`verify.js` is the important one for content. For all 59 levels it checks that
+`verify.js` is the important one for content. For all 75 levels it checks that
 the level loads, is **not** already solved with nothing placed, that the shipped
 reference solution fits the declared inventory, that replaying it lights every
 sensor, that it earns three stars so par is actually achievable, and that the
 trace stays inside the per-frame performance budget. Timed levels are simulated
 forward until they solve.
+
+`test-content.js` goes one step further for the hard chapters and proves their
+difficulty, not just their solvability: that an even split really does leave
+Split Decision's hungry sensor short, that no single polariser at any of 91
+angles unlocks Polar Lock, that removing any lamp from the Event Horizon leaves
+its gate shut, and that leaving Thermal Runaway's splitter at its default
+overheats the mirror.
 
 Authoring aids:
 
@@ -274,9 +358,11 @@ physics can supply.
 
 ## Levels
 
-59 levels: 55 story levels across 8 themed chapters, plus 4 sandboxes. Each
-chapter introduces one optical idea, uses it several ways, then combines it with
-the previous chapter's idea. Boss levels sit at 10, 20, 30, 40 and 50.
+75 levels: 71 story levels across 10 themed chapters, plus 4 sandboxes. The
+first eight chapters each introduce one optical idea, use it several ways, then
+combine it with the previous chapter's. The last two introduce nothing new —
+they take the slack out. Boss levels sit at every tenth stage — 10, 20, 30, 40,
+50, 60 and 70 — plus a chapter-ending boss at 63 and the final boss at 71.
 
 | Chapter | Teaches |
 |---|---|
@@ -288,7 +374,30 @@ the previous chapter's idea. Boss levels sit at 10, 20, 30, 40 and 50.
 | Deep Space Relay | Portals, diffraction gratings, photon budgets |
 | Clockwork Tower | Turntables, pendulums, rails, rhythm, timing |
 | Aurora Fields | Heat management and full additive colour mixing |
+| **Obsidian Spire** | Precision: tight bays, alarms beside the obvious route, decoy gates, dialled split ratios |
+| **Event Horizon** | Mastery: relayed focus, Malus in small steps, diffraction orders, synchronised motion, a power budget |
 | Open Bench | Four sandboxes with no goals at all |
+
+The two hard chapters, level by level:
+
+| # | Level | The catch |
+|---|---|---|
+| 56 | Needle's Eye | Six turns through three offset gaps, inside narrow bays |
+| 57 | Tripwire | Four alarms leave only narrow corridors over and under a block |
+| 58 | Prismatic Relay | Pluck both ends of one rainbow and send them to opposite corners |
+| 59 | Split Decision | Four sensors; an even split cannot feed the hungriest |
+| 60 | **The Obsidian Engine** (boss) | Red + green to a yellow gate, white filtered to blue, an alarm on the lazy route |
+| 61 | Portal Maze | Sealed rooms joined only by gates — one of them a trap |
+| 62 | Moving Target | Feed a turntable, then wait for it to line up with a slot |
+| 63 | **Crown of the Spire** (boss) | Split, filter, disperse and fold, with two alarms watching |
+| 64 | Gravity Well | An alarm sits exactly where the dish focuses; relay the cone past it |
+| 65 | Polar Lock | One polariser between crossed ones is no longer enough; two, evenly spaced, are |
+| 66 | Lightspeed | Six turns through fog with 85% of the best route's light required |
+| 67 | Spectral Weave | Send the red of one diffraction order and the violet of the other home |
+| 68 | Clockwork Singularity | Two turntables that agree only for a moment every ten seconds |
+| 69 | Thermal Runaway | A split ratio window about 0.2 wide between overheating and starving |
+| 70 | **Accretion Disk** (boss) | White in, three pure colours out, an alarm under the green line |
+| 71 | **Event Horizon** (final boss) | Three primaries through one gate in a sealed wall, balanced to mix white |
 
 Chapters unlock every 12 stars.
 
@@ -410,10 +519,12 @@ degrades by dropping the deepest branches rather than by hanging. The heaviest
 shipped scene — a sandbox with four emitters and a drawer full of glass — traces
 in about 4 ms, and the test suite warns on anything over 12 ms.
 
-The bloom pass renders at half resolution into an offscreen buffer, which is
-blurred and composited additively — that additive composite is what makes
-crossing beams brighten where they overlap, matching what the physics says
-should happen. Graphics quality is adjustable.
+The scattered-light pass renders at half resolution into an offscreen buffer,
+which is blurred and composited additively — that additive composite is what
+makes crossing beams brighten where they overlap, matching what the physics
+says should happen. The table's light map runs at a quarter resolution or less,
+since light on a surface varies slowly; the wood texture is built once per
+chapter and cached. Graphics quality is adjustable.
 
 ---
 
@@ -431,6 +542,9 @@ Stated plainly, because they are design decisions rather than oversights:
 - **Clip export produces WebM, not GIF.** Browsers have no native GIF encoder
   and bundling one was not worth the weight; where `MediaRecorder` is
   unavailable the export falls back to a PNG still and says so.
-- **The world is a fixed 1600×900.** On a portrait phone that letterboxes into a
-  strip — playable, but the game suggests landscape.
+- **The scattering, light pools and dust are visual.** Emitters do not
+  physically spread into a cone; doing so would change the energy reaching every
+  sensor. The core ray is what the physics follows.
+- **The world is a fixed 1600×900.** Portrait phones turn it sideways, except on
+  pendulum levels, which letterbox and suggest landscape.
 - **Multiplayer trusts its peers**, as described above.

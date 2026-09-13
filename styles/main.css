@@ -13,21 +13,23 @@
  * ========================================================================== */
 
 :root {
-  --bg: #05070d;
-  --panel: rgba(14, 19, 30, 0.86);
-  --panel-solid: #0e1320;
-  --line: rgba(140, 170, 210, 0.16);
-  --line-strong: rgba(150, 185, 230, 0.32);
-  --text: #e6edf8;
-  --text-dim: #93a3bd;
-  --text-faint: #6b7a94;
-  --accent: #5ad7ff;
-  --accent-warm: #ffc46b;
-  --good: #6bffab;
-  --bad: #ff7a7a;
+  /* Workshop palette: dark walnut panels, brass accents -- chosen to sit on
+   * the wooden bench rather than float over it in cold blue. */
+  --bg: #0a0705;
+  --panel: rgba(23, 17, 13, 0.86);
+  --panel-solid: #18120e;
+  --line: rgba(232, 202, 160, 0.14);
+  --line-strong: rgba(236, 206, 166, 0.30);
+  --text: #f4ede5;
+  --text-dim: #c0af9c;
+  --text-faint: #8f7f6e;
+  --accent: #e8b25c;
+  --accent-warm: #ffd27a;
+  --good: #8fe6a2;
+  --bad: #ff8270;
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -140,7 +142,7 @@ input, textarea, select { -webkit-user-select: text; user-select: text; }
   backdrop-filter: blur(10px);
   transition: background 120ms, border-color 120ms, transform 80ms;
 }
-.icon-btn:hover:not(:disabled) { background: rgba(30, 42, 62, 0.9); border-color: var(--line-strong); }
+.icon-btn:hover:not(:disabled) { background: rgba(52, 40, 30, 0.92); border-color: var(--line-strong); }
 .icon-btn:active:not(:disabled) { transform: scale(0.94); }
 .icon-btn:disabled { opacity: 0.32; cursor: default; }
 .icon-btn.small { width: 28px; height: 28px; font-size: 15px; }
@@ -192,12 +194,12 @@ input, textarea, select { -webkit-user-select: text; user-select: text; }
   cursor: pointer;
   transition: background 120ms, border-color 120ms, transform 80ms;
 }
-.tray-item:hover:not(:disabled) { background: rgba(90, 215, 255, 0.10); }
+.tray-item:hover:not(:disabled) { background: rgba(232, 178, 92, 0.10); }
 .tray-item:active:not(:disabled) { transform: translateY(1px); }
 .tray-item.armed {
   border-color: var(--accent);
-  background: rgba(90, 215, 255, 0.16);
-  box-shadow: 0 0 0 1px rgba(90, 215, 255, 0.3), 0 0 22px rgba(90, 215, 255, 0.22);
+  background: rgba(232, 178, 92, 0.16);
+  box-shadow: 0 0 0 1px rgba(232, 178, 92, 0.3), 0 0 22px rgba(232, 178, 92, 0.22);
 }
 .tray-item.spent { opacity: 0.3; cursor: default; }
 .tray-ico { color: var(--accent); display: block; }
@@ -339,11 +341,11 @@ select:focus, .text-input:focus, textarea:focus { outline: 2px solid var(--accen
 .big-btn:active:not(:disabled) { transform: translateY(1px); }
 .big-btn:disabled { opacity: 0.45; cursor: default; }
 .big-btn.primary {
-  background: linear-gradient(180deg, rgba(90, 215, 255, 0.24), rgba(90, 215, 255, 0.12));
-  border-color: rgba(90, 215, 255, 0.5);
-  color: #eafaff;
+  background: linear-gradient(180deg, rgba(232, 178, 92, 0.24), rgba(232, 178, 92, 0.12));
+  border-color: rgba(232, 178, 92, 0.5);
+  color: #fff4e2;
 }
-.big-btn.primary:hover { background: rgba(90, 215, 255, 0.3); }
+.big-btn.primary:hover { background: rgba(232, 178, 92, 0.3); }
 .big-btn.ghost { background: transparent; color: var(--text-dim); }
 
 /* ---- Title ------------------------------------------------------------- */
@@ -386,7 +388,7 @@ select:focus, .text-input:focus, textarea:focus { outline: 2px solid var(--accen
   font-family: inherit; cursor: pointer;
   transition: background 130ms, border-color 130ms, transform 80ms;
 }
-.level-card:hover:not(:disabled) { background: rgba(90, 215, 255, 0.1); border-color: var(--accent); }
+.level-card:hover:not(:disabled) { background: rgba(232, 178, 92, 0.1); border-color: var(--accent); }
 .level-card:active:not(:disabled) { transform: translateY(1px); }
 .level-card.disabled { opacity: 0.35; cursor: default; }
 .level-card.solved { border-color: rgba(107, 255, 171, 0.3); }
@@ -471,7 +473,7 @@ select:focus, .text-input:focus, textarea:focus { outline: 2px solid var(--accen
   border-radius: var(--radius-sm);
   color: var(--text); font-size: 12px; font-family: inherit; cursor: pointer;
 }
-.palette-item:hover { background: rgba(90, 215, 255, 0.12); border-color: var(--accent); }
+.palette-item:hover { background: rgba(232, 178, 92, 0.12); border-color: var(--accent); }
 .palette-item .ico { color: var(--accent); display: flex; }
 
 .inv-editor { display: grid; gap: 4px; }

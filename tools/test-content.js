@@ -203,6 +203,73 @@ ok('clamps wild coordinates',
   ok('an unsolved board cannot become the reference answer', r.ok === false, r.why);
 })();
 
+/* ---- 6. The hard levels are hard in the ways they claim -----------------
+ * Solvability is checked by verify.js. These check the DIFFICULTY: that the
+ * shortcut each level's blurb rules out really is ruled out by the physics. */
+(function () {
+  const { M } = LP;
+  const find = id => Levels.LEVELS.find(l => l.id === id);
+  function litWith(lvl, mutate) {
+    const sc = Scene.fromLevel(lvl);
+    const sol = JSON.parse(JSON.stringify(lvl.solution));
+    mutate(sol, sc);
+    Scene.applySolution(sc, sol);
+    return Scene.evaluate(sc);
+  }
+
+  /* spr-59: an even first split must leave the hungry sensor short. */
+  const s59 = find('spr-59');
+  const even = litWith(s59, sol => { sol[0].ratio = 0.5; });
+  ok('spr-59: an even split cannot feed the far sensor', !even.receivers[0].lit,
+     even.receivers[0].reason + ' I=' + even.receivers[0].intensity.toFixed(3));
+  const lean = litWith(s59, sol => { sol[0].ratio = 0.9; });
+  ok('spr-59: over-leaning the split starves the far end', !lean.allLit);
+
+  /* hzn-65: NO single intermediate polariser, at any angle, passes enough. */
+  const h65 = find('hzn-65');
+  let bestSingle = 0;
+  for (let deg = 0; deg <= 90; deg += 1) {
+    const ev = litWith(h65, sol => {
+      sol.length = 0;
+      sol.push({ type: 'polarizer', x: 800, y: 450, angle: M.rad(deg), radius: 46 });
+    });
+    bestSingle = Math.max(bestSingle, ev.receivers[0].intensity);
+    if (ev.allLit) { ok('hzn-65: one polariser can never unlock it', false, 'lit at ' + deg + 'deg'); break; }
+  }
+  ok('hzn-65: the best single polariser still falls short',
+     bestSingle < h65.receivers[0].require.minIntensity,
+     bestSingle.toFixed(4) + ' < ' + h65.receivers[0].require.minIntensity);
+
+  /* hzn-71: any two of the three lamps are not enough white. */
+  const h71 = find('hzn-71');
+  [[0, 2], [1, 3], [0, 1], [2, 3]].forEach(([a, b]) => {
+    /* Dropping the relay pair for one lamp removes that lamp from the gate. */
+    const ev = litWith(h71, sol => { sol.splice(b, 1); sol.splice(a, 1); });
+    ok('hzn-71: removing one lamp path leaves the gate shut (' + a + ',' + b + ')', !ev.receivers[0].lit,
+       ev.receivers[0].reason);
+  });
+
+  /* spr-60: neither red nor green alone opens the yellow gate. */
+  const s60 = find('spr-60');
+  const noGreen = litWith(s60, sol => { sol.splice(2, 1); });
+  ok('spr-60: red alone does not open the yellow gate', !noGreen.receivers[0].lit, noGreen.receivers[0].reason);
+
+  /* hzn-69: the default splitter setting overheats the thermal mirror. */
+  const h69 = find('hzn-69');
+  const sc = Scene.fromLevel(h69);
+  const sol = JSON.parse(JSON.stringify(h69.solution));
+  sol[0].ratio = 0.2;
+  Scene.applySolution(sc, sol);
+  let solved = false;
+  for (let t = 0; t < 20; t += 1 / 60) { if (Scene.tickSolve(sc, 1 / 60).solved) { solved = true; break; } }
+  ok('hzn-69: leaving the splitter at its default ratio fails', !solved);
+
+  /* Every boss level is tagged, and the final chapter ends on one. */
+  const bosses = Levels.LEVELS.filter(l => (l.tags || []).indexOf('boss') >= 0).map(l => l.id);
+  ok('boss levels exist in the new chapters',
+     ['spr-60', 'spr-63', 'hzn-70', 'hzn-71'].every(id => bosses.indexOf(id) >= 0), bosses.join(','));
+})();
+
 console.log('');
 console.log('  content test suite');
 console.log('  ------------------');

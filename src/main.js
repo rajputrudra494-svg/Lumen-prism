@@ -454,7 +454,9 @@
       /* Chime once per receiver as it comes on. */
       ev.receivers.forEach(function (r, i) {
         var was = game.lastLit[r.id];
-        if (r.lit && !was) {
+        /* Alarms count as satisfied while they stay DARK -- that is not a
+         * moment to celebrate, so they get no chime and no burst. */
+        if (r.lit && !was && !r.dark) {
           var rc = game.scene.receivers[i];
           LP.Audio.chime(i / Math.max(1, ev.receivers.length));
           buzz(15);

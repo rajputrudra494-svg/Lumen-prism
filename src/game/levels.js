@@ -1,7 +1,7 @@
 /* =============================================================================
  * Lumen Path - src/game/levels.js
  * -----------------------------------------------------------------------------
- * The level catalogue: 55 hand-designed levels across 8 themed chapters, plus
+ * The level catalogue: 71 hand-designed levels across 10 themed chapters, plus
  * sandboxes.
  *
  * HOW THESE ARE BUILT
@@ -29,31 +29,48 @@
   var CHAPTERS = [
     { id: 'lab', name: 'The Lab', teaches: 'Reflection',
       blurb: 'Clean benches, cold light, and one idea: angle in equals angle out.',
-      bg: '#0d1220', grid: '#1b2740', accent: '#5ad7ff', glow: '#7ef0ff', mood: 'clinical' },
+      bg: '#0d1220', grid: '#1b2740', accent: '#5ad7ff', glow: '#7ef0ff', mood: 'clinical',
+      wood: 'maple', ambient: '#c2cad2', ambientLevel: 0.46 },
     { id: 'observatory', name: 'The Observatory', teaches: 'Curved mirrors',
       blurb: 'Big glass under a colder sky. Learn to gather light, not just bend it.',
-      bg: '#0a0f1e', grid: '#1d2242', accent: '#ffc46b', glow: '#ffd9a0', mood: 'vast' },
+      bg: '#0a0f1e', grid: '#1d2242', accent: '#ffc46b', glow: '#ffd9a0', mood: 'vast',
+      wood: 'walnut', ambient: '#93a3c9', ambientLevel: 0.46 },
     { id: 'caves', name: 'Crystal Caves', teaches: 'Refraction & dispersion',
       blurb: 'Every wall is a prism. White light does not stay white down here.',
-      bg: '#150a24', grid: '#31184a', accent: '#c98bff', glow: '#e7c0ff', mood: 'resonant' },
+      bg: '#150a24', grid: '#31184a', accent: '#c98bff', glow: '#e7c0ff', mood: 'resonant',
+      wood: 'cherry', ambient: '#b39cd2', ambientLevel: 0.38 },
     { id: 'reef', name: 'Sunken Reef', teaches: 'Absorption & filters',
       blurb: 'Light drowns quickly. Waste none of it.',
-      bg: '#031c24', grid: '#0b3742', accent: '#4fe0c4', glow: '#a5fff0', mood: 'muffled' },
+      bg: '#031c24', grid: '#0b3742', accent: '#4fe0c4', glow: '#a5fff0', mood: 'muffled',
+      wood: 'teak', ambient: '#8fc6bd', ambientLevel: 0.4 },
     { id: 'neon', name: 'Neon Quarter', teaches: 'Splitting & polarisation',
       blurb: 'One beam is never enough in a city that runs on signal.',
-      bg: '#12061c', grid: '#331046', accent: '#ff5ec4', glow: '#ff9ede', mood: 'pulsing' },
+      bg: '#12061c', grid: '#331046', accent: '#ff5ec4', glow: '#ff9ede', mood: 'pulsing',
+      wood: 'ebony', ambient: '#d38cc8', ambientLevel: 0.66 },
     { id: 'deepspace', name: 'Deep Space Relay', teaches: 'Portals & gratings',
       blurb: 'Photons are rationed out here. Spend them carefully.',
-      bg: '#04040c', grid: '#141430', accent: '#8fa8ff', glow: '#cdd8ff', mood: 'sparse' },
+      bg: '#04040c', grid: '#141430', accent: '#8fa8ff', glow: '#cdd8ff', mood: 'sparse',
+      wood: 'smoked', ambient: '#8e98c9', ambientLevel: 0.52 },
     { id: 'clockwork', name: 'Clockwork Tower', teaches: 'Timing & motion',
       blurb: 'Nothing here holds still. Aim at where the mirror will be.',
-      bg: '#1a1206', grid: '#3d2c11', accent: '#ffb347', glow: '#ffdca8', mood: 'ticking' },
+      bg: '#1a1206', grid: '#3d2c11', accent: '#ffb347', glow: '#ffdca8', mood: 'ticking',
+      wood: 'mahogany', ambient: '#e6b67c', ambientLevel: 0.42 },
     { id: 'aurora', name: 'Aurora Fields', teaches: 'Heat & colour mixing',
       blurb: 'The sky does the mixing. You just have to keep the glass cool.',
-      bg: '#04140f', grid: '#0f3327', accent: '#6bffab', glow: '#c4ffe0', mood: 'shimmering' },
+      bg: '#04140f', grid: '#0f3327', accent: '#6bffab', glow: '#c4ffe0', mood: 'shimmering',
+      wood: 'ash', ambient: '#9ed6b6', ambientLevel: 0.36 },
+    { id: 'spire', name: 'Obsidian Spire', teaches: 'Precision under pressure',
+      blurb: 'Everything you have learned, and far less room to use it in.',
+      bg: '#12070a', grid: '#35141b', accent: '#ff7a5c', glow: '#ffb8a3', mood: 'ominous',
+      wood: 'charred', ambient: '#e0957a', ambientLevel: 0.58 },
+    { id: 'horizon', name: 'Event Horizon', teaches: 'Mastery',
+      blurb: 'Light bends, splits and vanishes here. Nothing forgives a stray degree.',
+      bg: '#05030b', grid: '#1d1633', accent: '#c9b2ff', glow: '#f1e8ff', mood: 'cosmic',
+      wood: 'limed', ambient: '#b8a6e6', ambientLevel: 0.40 },
     { id: 'sandbox', name: 'Open Bench', teaches: 'Nothing at all',
       blurb: 'No targets, no par, no clock. Take the optics apart and see.',
-      bg: '#0e0e14', grid: '#242434', accent: '#dddde8', glow: '#ffffff', mood: 'quiet' }
+      bg: '#0e0e14', grid: '#242434', accent: '#dddde8', glow: '#ffffff', mood: 'quiet',
+      wood: 'oak', ambient: '#dccbb2', ambientLevel: 0.52 }
   ];
 
   var LEVELS = [];
@@ -1362,6 +1379,598 @@
     par: { objects: 4, bounces: 5 },
     tags: ['finale']
   });
+
+  /* ==========================================================================
+   * CHAPTER 9 -- OBSIDIAN SPIRE
+   * Nothing new to learn; everything already learned, with the slack taken
+   * out. Tight bays, alarms beside the obvious route, decoy gates, and ratios
+   * that have to be dialled rather than left at half.
+   * ======================================================================= */
+
+  function dark(x, y, r) {
+    return R(x, y, { dark: true, maxIntensity: 0.03 }, { radius: r || 30, alarm: true });
+  }
+
+  multi({
+    id: 'spr-56', chapter: 'spire', name: 'Needle’s Eye',
+    blurb: 'Three walls, three narrow gaps, six turns. There is one way through.',
+    hint: 'Work gap by gap: each pair of mirrors lifts or drops the beam to the next opening.',
+    walls: [W(420, 0, 40, 560), W(420, 660, 40, 240),
+            W(820, 0, 40, 180), W(820, 280, 40, 620),
+            W(1220, 0, 40, 620), W(1220, 720, 40, 180)],
+    zones: [Z(200, 100, 190, 600), Z(540, 160, 200, 560), Z(940, 160, 200, 580)],
+    chains: [{
+      emitter: E(120, 150, 0, 'white', { intensity: 1.3 }),
+      receiver: R(1480, 670, need(0.5)),
+      path: [{ x: 300, y: 150 }, { x: 300, y: 610 }, { x: 640, y: 610 },
+             { x: 640, y: 230 }, { x: 1040, y: 230 }, { x: 1040, y: 670 }]
+    }],
+    par: { objects: 6, bounces: 6 },
+    tags: ['hard']
+  });
+
+  multi({
+    id: 'spr-57', chapter: 'spire', name: 'Tripwire',
+    blurb: 'Four alarms guard the only routes over and under the block. Thread between them.',
+    hint: 'The alarms leave a narrow corridor above the block, and another below it.',
+    walls: [W(760, 380, 80, 140)],
+    zones: [Z(260, 120, 200, 660), Z(1140, 120, 200, 660)],
+    chains: [{
+      emitter: E(120, 450, 0, 'white', { intensity: 1.4 }),
+      receiver: R(1480, 450, need(0.55)),
+      path: [{ x: 360, y: 450 }, { x: 360, y: 285 }, { x: 1240, y: 285 }, { x: 1240, y: 450 }]
+    }],
+    extraReceivers: [dark(800, 230), dark(800, 340), dark(800, 560), dark(800, 670)],
+    par: { objects: 4, bounces: 4 },
+    tags: ['hard']
+  });
+
+  /* --- Level 58: two colours plucked from one rainbow, sent opposite ways. -- */
+  (function () {
+    var prism = { type: 'prism', x: 700, y: 470, angle: rad(45), radius: 96, material: 'flint' };
+    var em = E(160, 530, 0, 'white', { intensity: 3.0 });
+    var fanOrigin = A.beamEnd([prism], [em], { depth: 2, pick: 'brightest' }).a;
+    var mid = A.bandCrossing([prism], [em], 540, 'y', 150);
+    var fold = { type: 'mirror', x: mid.x, y: mid.y, length: 340, locked: true,
+                 angle: A.aimAngle(fanOrigin, mid, { x: 1320, y: 840 }) };
+
+    var PICK_Y = 520;
+    var redP = A.bandCrossing([prism, fold], [em], 664, 'y', PICK_Y);
+    var bluP = A.bandCrossing([prism, fold], [em], 416, 'y', PICK_Y);
+    var RED_T = { x: 1480, y: 150 }, BLU_T = { x: 150, y: 820 };
+    /* Each colour leaves the fold mirror from a slightly different point, so
+     * each relay must be aimed from where ITS OWN band comes from -- aiming
+     * both from the fold's centre sends violet wide of its target. */
+    function bandFrom(fixed, nm, y) {
+      var segs = A.probe(fixed, [em]).result.segments, best = null, bd = Infinity;
+      for (var i = 0; i < segs.length; i++) {
+        var sg = segs[i];
+        if (sg.wl === null || sg.inside) continue;
+        var dy = sg.b.y - sg.a.y;
+        if (Math.abs(dy) < 1e-9) continue;
+        var t = (y - sg.a.y) / dy;
+        if (t < 0 || t > 1) continue;
+        if (Math.abs(sg.wl - nm) < bd) { bd = Math.abs(sg.wl - nm); best = sg; }
+      }
+      return best.a;
+    }
+    var relayR = { type: 'mirror', x: redP.x, y: redP.y, length: 56,
+                   angle: A.aimAngle(bandFrom([prism, fold], 664, PICK_Y), redP, RED_T) };
+    var relayB = { type: 'mirror', x: bluP.x, y: bluP.y, length: 56,
+                   angle: A.aimAngle(bandFrom([prism, fold], 416, PICK_Y), bluP, BLU_T) };
+    var all = [prism, fold, relayR, relayB];
+    var eR = A.energyAt(all, [em], RED_T, 40);
+    var eB = A.energyAt(all, [em], BLU_T, 40);
+
+    multi({
+      id: 'spr-58', chapter: 'spire', name: 'Prismatic Relay',
+      blurb: 'Take the two ends of one rainbow and send them to opposite corners.',
+      hint: 'Disperse, then put one small mirror at each end of the fan. Red leaves last, violet first.',
+      chains: [],
+      fixed: [fold],
+      extraEmitters: [em],
+      extraReceivers: [
+        R(RED_T.x, RED_T.y, { wavelength: 640, wavelengthTolerance: 45,
+                              minIntensity: Math.max(0.02, eR.intensity * 0.7) }, { radius: 40 }),
+        R(BLU_T.x, BLU_T.y, { wavelength: 440, wavelengthTolerance: 45,
+                              minIntensity: Math.max(0.02, eB.intensity * 0.7) }, { radius: 40 })
+      ],
+      extraSolution: [prism, relayR, relayB],
+      inventory: [
+        { type: 'prism', count: 1, preset: { radius: 96, material: 'flint' } },
+        { type: 'mirror', count: 2, preset: { length: 56 } }
+      ],
+      par: { objects: 3, bounces: 40 },
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 59: four subscribers, and the first split must be uneven. ----- */
+  (function () {
+    var em = E(120, 450, 0, 'white', { intensity: 3.0 });
+    var tA = { x: 1480, y: 800 }, tB = { x: 1480, y: 110 },
+        tC = { x: 1200, y: 865 }, tD = { x: 1480, y: 450 };
+    function build(r1) {
+      return [
+        { type: 'splitter', x: 480, y: 450, angle: rad(45), length: 200, ratio: r1 },
+        { type: 'mirror', x: 480, y: 800, length: 140,
+          angle: A.aimAngle({ x: 480, y: 450 }, { x: 480, y: 800 }, tA) },
+        { type: 'splitter', x: 860, y: 450, angle: rad(135), length: 200, ratio: 0.5 },
+        { type: 'mirror', x: 860, y: 110, length: 140,
+          angle: A.aimAngle({ x: 860, y: 450 }, { x: 860, y: 110 }, tB) },
+        { type: 'splitter', x: 1200, y: 450, angle: rad(45), length: 200, ratio: 0.5 }
+      ];
+    }
+    var sol = build(0.62), even = build(0.5);
+    var eA = A.energyAt(sol, [em], tA, 30).intensity;
+    var eAeven = A.energyAt(even, [em], tA, 30).intensity;
+    var eB = A.energyAt(sol, [em], tB, 30).intensity;
+    var eC = A.energyAt(sol, [em], tC, 30).intensity;
+    var eD = A.energyAt(sol, [em], tD, 30).intensity;
+
+    multi({
+      id: 'spr-59', chapter: 'spire', name: 'Split Decision',
+      blurb: 'Four sensors on one lamp. The first one is hungrier than an even split can feed.',
+      hint: 'Lean the first splitter towards reflecting -- but not so far that the far end goes dark.',
+      chains: [],
+      extraEmitters: [em],
+      extraReceivers: [
+        /* Halfway between what an even split delivers and what the tuned
+         * split delivers: an even split is guaranteed to fall short. */
+        R(tA.x, tA.y, need(Math.round((eA + eAeven) * 500) / 1000), { radius: 30 }),
+        R(tB.x, tB.y, need(Math.round(eB * 700) / 1000), { radius: 30 }),
+        R(tC.x, tC.y, need(Math.round(eC * 750) / 1000), { radius: 30 }),
+        R(tD.x, tD.y, need(Math.round(eD * 750) / 1000), { radius: 30 })
+      ],
+      extraSolution: sol,
+      inventory: [
+        { type: 'splitter', count: 3, preset: { length: 200, ratio: 0.5 } },
+        { type: 'mirror', count: 2, preset: { length: 140 } }
+      ],
+      par: { objects: 5, bounces: 8 },
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 60: BOSS. Three lamps, two gates, one alarm. ------------------- */
+  multi({
+    id: 'spr-60', chapter: 'spire', name: 'The Obsidian Engine',
+    blurb: 'One gate wants yellow, one wants pure blue, and the alarm wants nothing at all.',
+    hint: 'Red and green meet on the yellow gate. The white lamp must be filtered and turned before it reaches the alarm.',
+    walls: [W(700, 120, 40, 220)],
+    chains: [
+      { emitter: E(120, 140, 0, 'red', { intensity: 1.6 }),
+        receiver: R(1200, 680, { color: 'yellow', minIntensity: 2.0 }, { radius: 40 }),
+        path: [{ x: 420, y: 140 }, { x: 420, y: 380 }] },
+      { emitter: E(120, 780, 0, 'green', { intensity: 1.6 }),
+        receiver: R(1200, 680, { color: 'yellow', minIntensity: 2.0 }, { radius: 40 }),
+        path: [{ x: 700, y: 780 }] },
+      { emitter: E(1000, 40, 90, 'white', { intensity: 2.4 }),
+        receiver: R(1480, 260, { color: 'blue', minIntensity: 0.2 }, { radius: 34 }),
+        path: [{ x: 1000, y: 260 }] }
+    ],
+    extraReceivers: [dark(1000, 480)],
+    extraSolution: [{ type: 'filter', x: 1000, y: 170, angle: 0, length: 160, color: 'blue' }],
+    inventory: [
+      { type: 'mirror', count: 4 },
+      { type: 'filter', count: 1, preset: { color: 'blue', length: 160 } }
+    ],
+    par: { objects: 5, bounces: 5 },
+    tags: ['boss']
+  });
+
+  /* --- Level 61: gates between sealed rooms, and one of them is a trap. ----- */
+  (function () {
+    var m0 = { type: 'mirror', x: 400, y: 700, length: 120,
+               angle: A.aimAngle({ x: 120, y: 700 }, { x: 400, y: 700 }, { x: 400, y: 200 }) };
+    var m1 = { type: 'mirror', x: 640, y: 450, length: 120,
+               angle: A.aimAngle({ x: 640, y: 764 }, { x: 640, y: 450 }, { x: 900, y: 450 }) };
+    var m2 = { type: 'mirror', x: 1400, y: 150, length: 120,
+               angle: A.aimAngle({ x: 1234, y: 150 }, { x: 1400, y: 150 }, { x: 1400, y: 800 }) };
+    multi({
+      id: 'spr-61', chapter: 'spire', name: 'Portal Maze',
+      blurb: 'Sealed walls split the room in three. Only the gates connect them — and one gate is a trap.',
+      hint: 'A gate keeps the beam travelling the same way. Work out where each twin lets it out first.',
+      walls: [W(520, 0, 40, 900), W(1060, 0, 40, 900)],
+      fixed: [
+        F('portal', 400, 200, 0, { id: 'mA', link: 'mB', radius: 34 }),
+        F('portal', 640, 800, 0, { id: 'mB', link: 'mA', radius: 34 }),
+        F('portal', 900, 450, 0, { id: 'mC', link: 'mD', radius: 34 }),
+        F('portal', 1200, 150, 0, { id: 'mD', link: 'mC', radius: 34 }),
+        F('portal', 900, 780, 0, { id: 'tX', link: 'tY', radius: 30 }),
+        F('portal', 250, 450, 0, { id: 'tY', link: 'tX', radius: 30 })
+      ],
+      chains: [],
+      extraEmitters: [E(120, 700, 0, 'white', { intensity: 1.6 })],
+      extraReceivers: [R(1400, 800, need(0.6))],
+      extraSolution: [m0, m1, m2],
+      inventory: [{ type: 'mirror', count: 3 }],
+      par: { objects: 3, bounces: 3 },
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 62: feed a turntable, then wait for the slot. ----------------- */
+  (function () {
+    var m1 = { type: 'mirror', x: 420, y: 60, length: 120,
+               angle: A.aimAngle({ x: 120, y: 60 }, { x: 420, y: 60 }, { x: 420, y: 620 }) };
+    var m2 = { type: 'mirror', x: 420, y: 620, length: 120,
+               angle: A.aimAngle({ x: 420, y: 60 }, { x: 420, y: 620 }, { x: 900, y: 620 }) };
+    multi({
+      id: 'spr-62', chapter: 'spire', name: 'Moving Target',
+      blurb: 'A turntable sweeps the beam past a slot in the wall. Get the light onto the table first.',
+      hint: 'Two mirrors bring the light down and across. After that it is a matter of waiting for the slot.',
+      walls: [W(700, 300, 160, 40), W(940, 300, 160, 40)],
+      fixed: [F('mirror', 900, 620, 0, { length: 190, material: 'gold',
+                motion: { type: 'turntable', speed: 0.3 } })],
+      chains: [],
+      extraEmitters: [E(120, 60, 0, 'white', { intensity: 2.0 })],
+      extraReceivers: [R(900, 160, need(0.3), { radius: 42 })],
+      extraSolution: [m1, m2],
+      inventory: [{ type: 'mirror', count: 2 }],
+      par: { objects: 2, bounces: 2 },
+      holdTime: 0.2, simWindow: 30,
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 63: BOSS. Split, filter, disperse and fold -- guarded both ways. */
+  (function () {
+    var em = E(120, 560, 0, 'white', { intensity: 3.2 });
+    var split = { type: 'splitter', x: 380, y: 560, angle: rad(135), length: 200, ratio: 0.5 };
+    var up = { type: 'mirror', x: 380, y: 300, length: 130,
+               angle: A.aimAngle({ x: 380, y: 560 }, { x: 380, y: 300 }, { x: 1480, y: 300 }) };
+    var filt = { type: 'filter', x: 900, y: 300, angle: rad(90), length: 170, color: 'red' };
+    var prism = { type: 'prism', x: 1000, y: 500, angle: rad(45), radius: 92, material: 'flint' };
+    var base = [split, up, filt, prism];
+
+    var segs = A.probe(base, [em]).result.segments;
+    var fanOrigin = null;
+    for (var i = 0; i < segs.length; i++) {
+      if (segs[i].wl !== null && !segs[i].inside && segs[i].via !== 'fresnel' && segs[i].depth >= 3) {
+        fanOrigin = segs[i].a; break;
+      }
+    }
+    var mid = A.bandCrossing(base, [em], 540, 'y', 120);
+    var fold = { type: 'mirror', x: mid.x, y: mid.y, length: 320, locked: true,
+                 angle: A.aimAngle(fanOrigin, mid, { x: 1400, y: 880 }) };
+    var withFold = base.concat([fold]);
+
+    var PORT_Y = 800;
+    var vP = A.bandCrossing(withFold, [em], 416, 'y', PORT_Y);
+    var vN = A.bandCrossing(withFold, [em], 478, 'y', PORT_Y);
+    var rP = A.bandCrossing(withFold, [em], 664, 'y', PORT_Y);
+    var rN = A.bandCrossing(withFold, [em], 602, 'y', PORT_Y);
+    var vPort = bandPort(vP, vN, 440, 50);
+    var rPort = bandPort(rP, rN, 640, 50);
+    var eV = A.energyAt(withFold, [em], vP, vPort.radius).intensity;
+    var eRp = A.energyAt(withFold, [em], rP, rPort.radius).intensity;
+    var eRed = A.energyAt(withFold, [em], { x: 1480, y: 300 }, 32).intensity;
+    vPort.require.minIntensity = Math.max(0.02, Math.round(eV * 700) / 1000);
+    rPort.require.minIntensity = Math.max(0.02, Math.round(eRp * 700) / 1000);
+
+    multi({
+      id: 'spr-63', chapter: 'spire', name: 'Crown of the Spire',
+      blurb: 'One lamp feeds three locks: a red gate, and both ends of a rainbow. Two alarms watch the lazy routes.',
+      hint: 'Split first. One arm is filtered red; the other goes through the prism and onto the fold.',
+      chains: [],
+      fixed: [fold],
+      extraEmitters: [em],
+      extraReceivers: [
+        R(1480, 300, { color: 'red', minIntensity: Math.max(0.05, Math.round(eRed * 700) / 1000) },
+          { radius: 32 }),
+        R(vP.x, vP.y, vPort.require, { radius: vPort.radius }),
+        R(rP.x, rP.y, rPort.require, { radius: rPort.radius }),
+        dark(1540, 560, 28),
+        dark(380, 110, 28)
+      ],
+      extraSolution: base,
+      inventory: [
+        { type: 'splitter', count: 1, preset: { length: 200, ratio: 0.5 } },
+        { type: 'mirror', count: 1, preset: { length: 130 } },
+        { type: 'filter', count: 1, preset: { color: 'red', length: 170 } },
+        { type: 'prism', count: 1, preset: { radius: 92, material: 'flint' } }
+      ],
+      par: { objects: 4, bounces: 40 },
+      tags: ['boss']
+    });
+  })();
+
+  /* ==========================================================================
+   * CHAPTER 10 -- EVENT HORIZON
+   * The last chapter. Each level turns on a piece of optics that only works
+   * if you understand WHY it works: focusing through a relay, Malus in small
+   * steps, diffraction orders, synchronised motion, and a power budget.
+   * ======================================================================= */
+
+  /* --- Level 64: gather faint light, but not where it naturally focuses. --- */
+  (function () {
+    var em = E(130, 300, 0, 'white', { width: 200, rays: 15, intensity: 0.9 });
+    var dish = { type: 'concave', x: 1220, y: 300, angle: rad(68), length: 260,
+                 curvature: 0.16, material: 'silver' };
+    var f1 = A.focusAfter([dish], [em], 1);
+    var relayPt = { x: Math.round(dish.x + (f1.x - dish.x) * 0.55),
+                    y: Math.round(dish.y + (f1.y - dish.y) * 0.55) };
+    var target = { x: 1450, y: 820 };
+    var relay = { type: 'mirror', x: relayPt.x, y: relayPt.y, length: 220,
+                  angle: A.aimAngle({ x: dish.x, y: dish.y }, relayPt, target) };
+    var f2 = A.focusAfter([dish, relay], [em], 2);
+    var probe = A.energyAt([dish, relay], [em], f2, 24);
+
+    multi({
+      id: 'hzn-64', chapter: 'horizon', name: 'Gravity Well',
+      blurb: 'A faint lamp, a dish to gather it, and an alarm sitting exactly where the dish focuses.',
+      hint: 'Catch the converging cone with a flat mirror before it reaches its focus. It keeps converging after the turn.',
+      chains: [],
+      extraEmitters: [em],
+      extraReceivers: [
+        R(f2.x, f2.y, demand(probe, 0.7), { radius: 24 }),
+        R(f1.x, f1.y, { dark: true, maxIntensity: 0.05 }, { radius: 26, alarm: true })
+      ],
+      extraSolution: [dish, relay],
+      inventory: [
+        { type: 'concave', count: 1, preset: { length: 260, curvature: 0.16 } },
+        { type: 'mirror', count: 1, preset: { length: 220 } }
+      ],
+      par: { objects: 2, bounces: 30 },
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 65: Malus in small steps. ------------------------------------- */
+  (function () {
+    var em = E(120, 450, 0, 'white', { intensity: 1.2 });
+    var fixedP = [F('polarizer', 400, 450, 0, { radius: 46 }),
+                  F('polarizer', 1200, 450, 90, { radius: 46 })];
+    var target = { x: 1480, y: 450 };
+    var two = fixedP.concat([
+      { type: 'polarizer', x: 680, y: 450, angle: rad(30), radius: 46 },
+      { type: 'polarizer', x: 920, y: 450, angle: rad(60), radius: 46 }
+    ]);
+    var one = fixedP.concat([{ type: 'polarizer', x: 800, y: 450, angle: rad(45), radius: 46 }]);
+    var eTwo = A.energyAt(two, [em], target, 30).intensity;
+    var eOne = A.energyAt(one, [em], target, 30).intensity;
+
+    multi({
+      id: 'hzn-65', chapter: 'horizon', name: 'Polar Lock',
+      blurb: 'Crossed filters again — but one filter in between no longer lets enough through.',
+      hint: 'Light survives a big turn best in small steps. Two filters, evenly spaced, lose far less than one.',
+      chains: [],
+      fixed: fixedP,
+      zones: [Z(500, 330, 600, 240)],
+      extraEmitters: [em],
+      extraReceivers: [
+        /* Between the best single-filter result and the best two-filter
+         * result: one filter at any angle is physically unable to pass. */
+        R(target.x, target.y, { color: 'any', minIntensity: Math.round((eTwo + eOne) * 500) / 1000,
+                                polarization: Math.PI / 2 }, { radius: 30 })
+      ],
+      extraSolution: two.slice(2),
+      inventory: [{ type: 'polarizer', count: 2, preset: { radius: 46, angle: 0 } }],
+      par: { objects: 2, bounces: 4 },
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 66: a long route with no light to spare. ---------------------- */
+  (function () {
+    var spec = {
+      id: 'hzn-66', chapter: 'horizon', name: 'Lightspeed',
+      blurb: 'Six turns through thick air. There is exactly enough light for the shortest route.',
+      hint: 'A detour costs a bounce and distance. Neither is affordable here.',
+      fog: 0.0006,
+      weather: 'murk',
+      walls: [W(520, 260, 50, 640), W(980, 0, 50, 560)],
+      zones: [Z(200, 60, 200, 820), Z(660, 60, 200, 720), Z(1120, 100, 200, 680)],
+      chains: [{
+        emitter: E(120, 820, 0, 'white', { intensity: 5.0 }),
+        receiver: R(1480, 160, need(0.01)),
+        path: [{ x: 300, y: 820 }, { x: 300, y: 120 }, { x: 760, y: 120 },
+               { x: 760, y: 700 }, { x: 1220, y: 700 }, { x: 1220, y: 160 }]
+      }],
+      par: { objects: 6, bounces: 6 },
+      tags: ['hard']
+    };
+    var lvl = multi(spec);
+    /* Measure the reference route, then demand 85% of it. */
+    var sc = LP.Scene.fromLevel(lvl);
+    LP.Scene.applySolution(sc);
+    var got = LP.Scene.evaluate(sc).receivers[0].intensity;
+    lvl.receivers[0].require.minIntensity = Math.round(got * 850) / 1000;
+  })();
+
+  /* --- Level 67: one plate, two diffraction orders, two corners. ----------- */
+  (function () {
+    var grating = F('grating', 800, 450, 90, { length: 300, spacing: 1600, orders: 1 });
+    var em = E(140, 450, 0, 'white', { intensity: 4.0 });
+    var X = 1250;
+    var redUp = A.bandCrossing([grating], [em], 664, 'x', X, 'grating1');
+    var bluDn = A.bandCrossing([grating], [em], 416, 'x', X, 'grating-1');
+    var UP_T = { x: 300, y: 110 }, DN_T = { x: 300, y: 790 };
+    var relayU = { type: 'mirror', x: redUp.x, y: redUp.y, length: 60,
+                   angle: A.aimAngle({ x: 800, y: 450 }, redUp, UP_T) };
+    var relayD = { type: 'mirror', x: bluDn.x, y: bluDn.y, length: 60,
+                   angle: A.aimAngle({ x: 800, y: 450 }, bluDn, DN_T) };
+    var all = [grating, relayU, relayD];
+    var eU = A.energyAt(all, [em], UP_T, 40).intensity;
+    var eD = A.energyAt(all, [em], DN_T, 40).intensity;
+
+    multi({
+      id: 'hzn-67', chapter: 'horizon', name: 'Spectral Weave',
+      blurb: 'The grating throws a rainbow up and another down. The red of one and the violet of the other go home.',
+      hint: 'The upper and lower fans are mirror images: red is the outer edge of both.',
+      chains: [],
+      fixed: [grating],
+      extraEmitters: [em],
+      extraReceivers: [
+        R(UP_T.x, UP_T.y, { wavelength: 630, wavelengthTolerance: 55,
+                            minIntensity: Math.max(0.02, Math.round(eU * 700) / 1000) }, { radius: 40 }),
+        R(DN_T.x, DN_T.y, { wavelength: 450, wavelengthTolerance: 55,
+                            minIntensity: Math.max(0.02, Math.round(eD * 700) / 1000) }, { radius: 40 })
+      ],
+      extraSolution: [relayU, relayD],
+      inventory: [{ type: 'mirror', count: 2, preset: { length: 60 } }],
+      par: { objects: 2, bounces: 6 },
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 68: two turntables, two targets, one instant. ----------------- */
+  (function () {
+    var V = LP.V;
+    var SPEED = 0.3, TSTAR = 5.0;
+    var T1 = { x: 780, y: 700 }, T2 = { x: 1180, y: 450 };
+    var TGT1 = { x: 560, y: 820 }, TGT2 = { x: 1450, y: 160 };
+    /* Solve each mounting angle so both reflections land at the SAME moment. */
+    var a1 = A.aimAngle({ x: 780, y: 600 }, T1, TGT1) - SPEED * TSTAR;
+    var a2 = A.aimAngle({ x: 1080, y: 450 }, T2, TGT2) - SPEED * TSTAR;
+    var m1 = { type: 'mirror', x: 420, y: 800, length: 130,
+               angle: A.aimAngle({ x: 120, y: 800 }, { x: 420, y: 800 }, { x: 420, y: 450 }) };
+    var m2 = { type: 'mirror', x: 420, y: 450, length: 130,
+               angle: A.aimAngle({ x: 420, y: 800 }, { x: 420, y: 450 }, { x: 780, y: 450 }) };
+    void V;
+
+    multi({
+      id: 'hzn-68', chapter: 'horizon', name: 'Clockwork Singularity',
+      blurb: 'Two turntables, two targets, and they only agree for a moment every ten seconds.',
+      hint: 'You cannot change the machinery. Deliver the light and let the two tables come into line together.',
+      fixed: [
+        F('splitter', 780, 450, 45, { length: 220, ratio: 0.5 }),
+        F('mirror', T1.x, T1.y, M.deg(a1), { length: 190, material: 'gold',
+          motion: { type: 'turntable', speed: SPEED, baseAngle: a1 } }),
+        F('mirror', T2.x, T2.y, M.deg(a2), { length: 190, material: 'gold',
+          motion: { type: 'turntable', speed: SPEED, baseAngle: a2 } })
+      ],
+      chains: [],
+      extraEmitters: [E(120, 800, 0, 'white', { intensity: 3.0 })],
+      extraReceivers: [R(TGT1.x, TGT1.y, need(0.2), { radius: 48 }),
+                       R(TGT2.x, TGT2.y, need(0.2), { radius: 48 })],
+      extraSolution: [m1, m2],
+      inventory: [{ type: 'mirror', count: 2, preset: { length: 130 } }],
+      par: { objects: 2, bounces: 4 },
+      holdTime: 0.25, simWindow: 30,
+      tags: ['hard']
+    });
+  })();
+
+  /* --- Level 69: a power budget with two customers. ------------------------ */
+  multi({
+    id: 'hzn-69', chapter: 'horizon', name: 'Thermal Runaway',
+    blurb: 'The hot mirror needs less light. The far sensor needs more. Both come from one lamp.',
+    hint: 'Set the splitter so the thermal mirror stays under its limit while the other arm still has enough.',
+    fixed: [
+      F('flex', 1050, 450, 75, { length: 240, curvature: 0, material: 'silver', thermal: true,
+        motion: { type: 'thermal', rate: 1.6, cool: 1.0, maxCurve: -0.70,
+                  threshold: 2.6, heatScale: 1.4, baseCurve: 0 } })
+    ],
+    chains: [],
+    extraEmitters: [E(130, 450, 0, 'white', { width: 180, rays: 13, intensity: 2.6 })],
+    extraReceivers: [R(444, 800, need(0.45), { radius: 58 }),
+                     /* Wide enough to take the whole 180-unit bundle, so the
+                      * reading depends on the split ratio -- not on whether
+                      * one edge ray happens to graze the rim. */
+                     R(1400, 140, need(0.7), { radius: 95 })],
+    extraSolution: [
+      { type: 'splitter', x: 700, y: 450, angle: rad(135), length: 240, ratio: 0.45 },
+      { type: 'mirror', x: 700, y: 140, length: 270,
+        angle: A.aimAngle({ x: 700, y: 450 }, { x: 700, y: 140 }, { x: 1400, y: 140 }) }
+    ],
+    inventory: [
+      { type: 'splitter', count: 1, preset: { length: 240, ratio: 0.2 } },
+      { type: 'mirror', count: 1, preset: { length: 270 } }
+    ],
+    par: { objects: 2, bounces: 40 },
+    holdTime: 4.0, simWindow: 26,
+    tags: ['hard', 'thermal']
+  });
+
+  /* --- Level 70: BOSS. White in, three pure colours out. ------------------- */
+  multi({
+    id: 'hzn-70', chapter: 'horizon', name: 'Accretion Disk',
+    blurb: 'White light in, three pure colours out — and an alarm under the green line.',
+    hint: 'Split twice and give each arm its own filter. The green arm needs one more turn, or it runs into the alarm.',
+    walls: [W(1180, 540, 60, 360), W(300, 0, 60, 300)],
+    chains: [],
+    extraEmitters: [E(140, 450, 0, 'white', { intensity: 2.8 })],
+    extraReceivers: [
+      R(980, 820, { color: 'green', minIntensity: 0.3 }, { radius: 30 }),
+      R(1050, 70, { color: 'blue', minIntensity: 0.16 }, { radius: 30 }),
+      R(1480, 450, { color: 'red', minIntensity: 0.14 }, { radius: 30 }),
+      dark(620, 880, 22)
+    ],
+    extraSolution: [
+      { type: 'splitter', x: 620, y: 450, angle: rad(45), length: 200, ratio: 0.5 },
+      { type: 'splitter', x: 1050, y: 450, angle: rad(135), length: 200, ratio: 0.5 },
+      { type: 'filter', x: 620, y: 650, angle: 0, length: 170, color: 'green' },
+      { type: 'filter', x: 1050, y: 250, angle: 0, length: 170, color: 'blue' },
+      { type: 'filter', x: 1300, y: 450, angle: rad(90), length: 170, color: 'red' },
+      { type: 'mirror', x: 620, y: 820, length: 140,
+        angle: A.aimAngle({ x: 620, y: 650 }, { x: 620, y: 820 }, { x: 980, y: 820 }) }
+    ],
+    inventory: [
+      { type: 'splitter', count: 2, preset: { length: 200, ratio: 0.5 } },
+      { type: 'filter', count: 1, preset: { color: 'green', length: 170 } },
+      { type: 'filter', count: 1, preset: { color: 'blue', length: 170 } },
+      { type: 'filter', count: 1, preset: { color: 'red', length: 170 } },
+      { type: 'mirror', count: 1, preset: { length: 140 } }
+    ],
+    par: { objects: 6, bounces: 8 },
+    tags: ['boss']
+  });
+
+  /* --- Level 71: FINAL BOSS. Three primaries through one gate, into white. -- */
+  (function () {
+    var V = LP.V;
+    var P1 = { x: 650, y: 450 }, P2 = { x: 960, y: 450 };
+    var W_T = { x: 1350, y: 450 };
+    var dR = V.norm({ x: P1.x - 420, y: P1.y - 140 });
+    var dB = V.norm({ x: P1.x - 420, y: P1.y - 760 });
+    var mr1 = { type: 'mirror', x: 420, y: 140, length: 120,
+                angle: A.aimAngle({ x: 120, y: 140 }, { x: 420, y: 140 }, P1) };
+    var mb1 = { type: 'mirror', x: 420, y: 760, length: 120,
+                angle: A.aimAngle({ x: 120, y: 760 }, { x: 420, y: 760 }, P1) };
+    var mr2p = { x: Math.round(P2.x + dR.x * 220), y: Math.round(P2.y + dR.y * 220) };
+    var mb2p = { x: Math.round(P2.x + dB.x * 220), y: Math.round(P2.y + dB.y * 220) };
+    var mr2 = { type: 'mirror', x: mr2p.x, y: mr2p.y, length: 120, angle: A.aimAngle(P2, mr2p, W_T) };
+    var mb2 = { type: 'mirror', x: mb2p.x, y: mb2p.y, length: 120, angle: A.aimAngle(P2, mb2p, W_T) };
+    var alarmR = { x: Math.round(P2.x + dR.x * 430), y: Math.round(P2.y + dR.y * 430) };
+    var alarmB = { x: Math.round(P2.x + dB.x * 430), y: Math.round(P2.y + dB.y * 430) };
+
+    var spec = {
+      id: 'hzn-71', chapter: 'horizon', name: 'Event Horizon',
+      blurb: 'Red, green and blue on one side of a sealed wall. White on the other. One gate between.',
+      hint: 'Aim every lamp at the centre of the near gate; each comes out of the far gate on the same line. Then turn each onto the target.',
+      walls: [W(780, 0, 50, 900)],
+      fixed: [
+        F('portal', P1.x, P1.y, 0, { id: 'hA', link: 'hB', radius: 36 }),
+        F('portal', P2.x, P2.y, 0, { id: 'hB', link: 'hA', radius: 36 })
+      ],
+      zones: [Z(300, 60, 420, 780), Z(1000, 120, 240, 660)],
+      chains: [],
+      extraEmitters: [
+        /* Green reaches the gate with no mirrors and a shorter route, so it
+         * starts dimmer: the three must ARRIVE balanced to mix to white. */
+        E(120, 140, 0, 'red', { intensity: 1.6 }),
+        E(120, 450, 0, 'green', { intensity: 1.25 }),
+        E(120, 760, 0, 'blue', { intensity: 1.6 })
+      ],
+      extraReceivers: [
+        R(W_T.x, W_T.y, { color: 'white', minIntensity: 0.01 }, { radius: 44 }),
+        dark(alarmR.x, alarmR.y, 26),
+        dark(alarmB.x, alarmB.y, 26)
+      ],
+      extraSolution: [mr1, mb1, mr2, mb2],
+      inventory: [{ type: 'mirror', count: 4 }],
+      par: { objects: 4, bounces: 4 },
+      tags: ['boss', 'finale']
+    };
+    var lvl = multi(spec);
+    /* Demand more than any two of the three beams can deliver together. */
+    var sc = LP.Scene.fromLevel(lvl);
+    LP.Scene.applySolution(sc);
+    var total = LP.Scene.evaluate(sc).receivers[0].intensity;
+    lvl.receivers[0].require.minIntensity = Math.round(total * 820) / 1000;
+  })();
 
   /* ==========================================================================
    * SANDBOXES -- no targets, no par. Just the optics and room to play.

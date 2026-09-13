@@ -312,12 +312,14 @@
    * `axis` is 'x' or 'y' and `value` the coordinate of the line.
    * Returns the crossing point, or null if that band never gets there.
    */
-  function bandCrossing(fixed, emitters, nm, axis, value) {
+  function bandCrossing(fixed, emitters, nm, axis, value, via) {
     var p = probe(fixed, emitters);
     var best = null, bestDelta = Infinity;
     for (var i = 0; i < p.result.segments.length; i++) {
       var s = p.result.segments[i];
       if (s.wl === null || s.inside) continue;
+      /* Optionally restrict to one diffraction order, e.g. 'grating1'. */
+      if (via !== undefined && s.via !== via) continue;
       if (Math.abs(s.wl - nm) > bestDelta) continue;
       var d = V.sub(s.b, s.a);
       var t;
