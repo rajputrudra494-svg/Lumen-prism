@@ -471,6 +471,16 @@
     input.beginPlacement = beginPlacement;
     input.cancelPlacement = cancelPlacement;
     input.select = select;
+    /** Drop whatever gesture is in progress -- the bench is being taken away
+     *  (a timed phase ran out), so a half-finished drag must not resume. */
+    input.cancelGesture = function () {
+      input.pointers = {};
+      input.pinch = null;
+      input.dragging = false;
+      input.activeHandle = null;
+      input.preview = null;
+      cancelPlacement();
+    };
     input.detach = function () {
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);

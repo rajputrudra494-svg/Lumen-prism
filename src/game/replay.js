@@ -46,6 +46,9 @@
    */
   function restore(level, replay) {
     var scene = Sc.fromLevel(level);
+    /* A timed level finished on its last phase's bench, with every phase's
+     * pieces handed out along the way. */
+    if (level.phases && LP.Phases) LP.Phases.fastForward(scene);
     Sc.reset(scene);
     for (var i = 0; i < replay.placements.length; i++) {
       var p = replay.placements[i];

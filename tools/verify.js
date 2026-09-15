@@ -14,14 +14,28 @@
  *   5. the reference solution earns three stars, so par is achievable
  *   6. for timed levels, the solve holds for the required duration
  *   7. tracing stays inside the per-frame performance budget
+ *
+ * Levels played in phases against a clock (see src/engine/phases.js) are
+ * played start to finish instead, at 60 ticks a second, and must also show
+ * that every phase's moves fit inside its time with room for a human hand,
+ * and that no phase clears without its own moves.
  * ========================================================================== */
 'use strict';
 
 const { loadCore } = require('./load');
 const LP = loadCore();
-const { Scene, Levels, Tracer, Elements } = LP;
+const { Scene, Levels, Tracer, Elements, Phases } = LP;
+
+/* Seconds a player needs, at the very least, to make one move -- pick from
+ * the tray, drop, aim. A phase that leaves less than this per move is not
+ * hard, it is impossible. Under a comfortable pace is only worth a warning. */
+const HUMAN_MIN_PER_MOVE = 3.5;
+const HUMAN_EASY_PER_MOVE = 6;
 
 const verbose = process.argv.includes('-v') || process.argv.includes('--verbose');
+/* `--only zro` checks just the levels whose id starts with that prefix. */
+const onlyAt = process.argv.indexOf('--only');
+const only = onlyAt >= 0 ? process.argv[onlyAt + 1] : null;
 
 let problems = 0;
 let warnings = 0;
@@ -37,11 +51,14 @@ function warn(lvl, msg) {
 }
 
 for (const lvl of Levels.LEVELS) {
+  if (only && lvl.id.indexOf(only) !== 0) continue;
   /* --- 1. structure ------------------------------------------------------ */
   if (!lvl.emitters || !lvl.emitters.length) { fail(lvl, 'no emitters'); continue; }
   if (!lvl.sandbox && (!lvl.receivers || !lvl.receivers.length)) {
     fail(lvl, 'no receivers'); continue;
   }
+
+  if (lvl.phases) { verifyPhased(lvl); continue; }
 
   /* --- 2. not already solved --------------------------------------------
    * On a timed level "solved" means the receivers stay lit for holdTime, so
@@ -129,6 +146,61 @@ for (const lvl of Levels.LEVELS) {
   });
 }
 
+function verifyPhased(lvl) {
+  const before = problems;
+  lvl.phases.forEach((p, i) => {
+    if (!(p.time > 0)) fail(lvl, `phase ${i + 1} has no time limit`);
+    if (!p.solution || !p.solution.length) fail(lvl, `phase ${i + 1} has no reference moves`);
+  });
+  if (problems > before) return;
+
+  /* The whole level, played with its reference moves. */
+  const t0 = process.hrtime.bigint();
+  const rep = Phases.simulate(lvl);
+  const simMs = Number(process.hrtime.bigint() - t0) / 1e6;
+  rep.phases.forEach(ph => {
+    const n = ph.index + 1;
+    if (!ph.madeMoves) fail(lvl, `phase ${n}: its reference moves do not fit the tray`);
+    if (ph.outcome !== 'clear') {
+      const ev = Scene.evaluate(rep.scene);
+      const why = ev.receivers.map((r, k) => r.inactive ? null :
+        `${lvl.receivers[k].id || k}:${r.reason}(I=${r.intensity.toFixed(3)})`).filter(Boolean).join(' ');
+      fail(lvl, `phase ${n} runs out of time with its own reference moves -> ${why}`);
+      return;
+    }
+    const slack = ph.time - ph.seconds;
+    if (slack < ph.moves * HUMAN_MIN_PER_MOVE) {
+      fail(lvl, `phase ${n}: ${ph.moves} moves in ${slack.toFixed(1)}s of slack is beyond a human hand`);
+    } else if (slack < ph.moves * HUMAN_EASY_PER_MOVE) {
+      warn(lvl, `phase ${n}: ${ph.moves} moves with ${slack.toFixed(1)}s of slack is very tight`);
+    }
+  });
+  if (!rep.completed) return;
+
+  /* No phase may clear itself: withhold its moves and the clock must win. */
+  lvl.phases.forEach((p, i) => {
+    const r = Phases.simulate(lvl, { withhold: i });
+    const ph = r.phases[i];
+    if (ph && ph.outcome === 'clear') fail(lvl, `phase ${i + 1} clears without any of its own moves`);
+  });
+
+  const sc = rep.scene;
+  const t1 = process.hrtime.bigint();
+  const res = Scene.run(sc);
+  const traceMs = Number(process.hrtime.bigint() - t1) / 1e6;
+  if (traceMs > 12) warn(lvl, `slow trace: ${traceMs.toFixed(1)}ms`);
+  if (res.stats.truncated) warn(lvl, `trace hit its ray budget (${res.stats.rays} rays)`);
+
+  const moves = lvl.phases.reduce((a, p) => a + p.solution.length, 0);
+  rows.push({
+    id: lvl.id, ch: lvl.chapter, name: lvl.name,
+    obj: moves, par: lvl.phases.length + 'ph',
+    bounce: rep.phases.map(p => p.seconds.toFixed(1)).join('/'), parB: 's',
+    rays: res.stats.rays, segs: res.stats.segments, ms: traceMs.toFixed(1),
+    minI: `sim ${simMs.toFixed(0)}ms`
+  });
+}
+
 if (verbose) {
   console.log('');
   console.log('  id             chapter      objects  bounces   rays  segs    ms   received');
@@ -155,6 +227,7 @@ console.log('  level verification');
 console.log('  ------------------');
 console.log('  levels:   ' + Levels.LEVELS.length);
 console.log('  chapters: ' + Object.entries(byChapter).map(([k, v]) => `${k}(${v})`).join(' '));
-console.log(`  ${Levels.LEVELS.length - problems} verified, ${problems} failed, ${warnings} warnings`);
+const checked = only ? Levels.LEVELS.filter(l => l.id.indexOf(only) === 0).length : Levels.LEVELS.length;
+console.log(`  ${checked - problems} verified, ${problems} failed, ${warnings} warnings`);
 console.log('');
 process.exit(problems === 0 ? 0 : 1);

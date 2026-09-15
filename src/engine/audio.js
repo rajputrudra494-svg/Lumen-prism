@@ -37,7 +37,13 @@
     /* Obsidian Spire: a minor pentatonic with a flattened second -- tense. */
     ominous:     [207.65, 220.00, 261.63, 277.18, 329.63],
     /* Event Horizon: wide fifths, nothing to resolve to. */
-    cosmic:      [196.00, 293.66, 392.00, 587.33, 783.99]
+    cosmic:      [196.00, 293.66, 392.00, 587.33, 783.99],
+    /* Mirage: whole tones -- no key, so nothing sounds quite where it is. */
+    uncanny:     [233.08, 261.63, 293.66, 329.63, 369.99],
+    /* Zero Hour: a diminished stack that never settles. */
+    urgent:      [220.00, 261.63, 311.13, 369.99, 440.00],
+    /* The Impossible: low, bare, a semitone apart at the top. */
+    void:        [130.81, 196.00, 261.63, 392.00, 415.30]
   };
 
   function unlock() {
@@ -170,6 +176,60 @@
   function beat() { tone(1046, { dur: 0.05, gain: 0.10, type: 'square' }); }
 
   /* ==========================================================================
+   * The clock on timed levels
+   * ======================================================================= */
+
+  /** One second off a mechanical timer. The last five add an electronic pip. */
+  function clockTick(left) {
+    var urgent = left <= 10;
+    noise({ freq: urgent ? 3400 : 2800, q: 7, dur: 0.03, gain: urgent ? 0.26 : 0.13 });
+    tone(urgent ? 190 : 150, { dur: 0.05, gain: urgent ? 0.07 : 0.035, type: 'triangle' });
+    if (left <= 5 && left > 0) {
+      tone(1568, { dur: 0.11, gain: 0.15, type: 'square', filter: 3200 });
+    }
+  }
+
+  /** Out of time: a two-tone klaxon over a low hum. */
+  function buzzer() {
+    tone(110, { dur: 0.95, gain: 0.2, type: 'sawtooth', filter: 950 });
+    tone(116.5, { dur: 0.95, gain: 0.17, type: 'sawtooth', filter: 950 });
+    tone(55, { dur: 1.05, gain: 0.2, type: 'square', filter: 380 });
+  }
+
+  /** The bench losing power, lamps and all. */
+  function powerDown() {
+    tone(240, { dur: 1.0, gain: 0.14, type: 'sawtooth', glide: 38, filter: 1300, delay: 0.1 });
+    noise({ freq: 260, q: 0.7, dur: 0.6, gain: 0.12, filterType: 'lowpass' });
+  }
+
+  /** Power back: the contactor snaps in and the lamps hum up. */
+  function powerUp() {
+    noise({ freq: 5200, q: 3, dur: 0.035, gain: 0.16 });
+    tone(55, { dur: 0.8, gain: 0.12, type: 'sawtooth', glide: 220, filter: 1400 });
+  }
+
+  /** Heavy hardware locking into place as a new phase begins. */
+  function relay() {
+    noise({ freq: 170, q: 1.1, dur: 0.2, gain: 0.34, filterType: 'lowpass' });
+    tone(78, { dur: 0.22, gain: 0.2, type: 'triangle' });
+    noise({ freq: 2600, q: 4, dur: 0.03, gain: 0.13 });
+  }
+
+  /** A phase cleared: the chapter's own notes, rising, with a latch under them. */
+  function phaseClear() {
+    var scale = SCALES[A.chapter] || SCALES.clinical;
+    tone(scale[2] * 2, { dur: 0.22, gain: 0.18, type: 'triangle' });
+    tone(scale[4] * 2, { dur: 0.45, gain: 0.2, type: 'triangle', delay: 0.11 });
+    tone(scale[4] * 4, { dur: 0.35, gain: 0.06, type: 'sine', delay: 0.12 });
+    relay();
+  }
+
+  /** The count-in before a phase's clock starts. */
+  function armBeep(final) {
+    tone(final ? 1318.5 : 880, { dur: final ? 0.32 : 0.1, gain: 0.14, type: 'square', filter: 3600 });
+  }
+
+  /* ==========================================================================
    * Ambient pad. Two slightly detuned oscillators per chapter root, which is
    * enough to sit under the puzzle without ever demanding attention.
    * ======================================================================= */
@@ -251,6 +311,8 @@
     unlock: unlock,
     click: click, tick: tick, pick: pick, drop: drop,
     chime: chime, fanfare: fanfare, error: error, warn: warn, beat: beat,
+    clockTick: clockTick, buzzer: buzzer, powerDown: powerDown, powerUp: powerUp,
+    relay: relay, phaseClear: phaseClear, armBeep: armBeep,
     setChapter: setChapter, setMusic: setMusic, setEnabled: setEnabled,
     tone: tone, noise: noise
   };

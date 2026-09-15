@@ -5,8 +5,8 @@
  * what each receiver sees, so you can tell "never aligned" apart from "aligned
  * but only for two frames".
  *
- *     node tools/timeline.js clk-43            reference solution
- *     node tools/timeline.js clk-43 --bare     nothing placed
+ *     node tools/timeline.js clk-44            reference solution
+ *     node tools/timeline.js clk-44 --bare     nothing placed
  * ========================================================================== */
 'use strict';
 

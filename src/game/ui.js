@@ -1,8 +1,8 @@
 /* =============================================================================
  * Lumen Path - src/game/ui.js
  * -----------------------------------------------------------------------------
- * All chrome: the HUD, the inventory tray, the properties panel, every overlay
- * screen, and the toasts.
+ * All chrome: the HUD, the inventory tray, the phase clock on timed levels,
+ * every overlay screen, and the toasts.
  *
  * The DOM is built in JavaScript rather than written into index.html. That
  * keeps the markup file to a single canvas and a script list, and it means the
@@ -83,6 +83,96 @@
     return wrap;
   }
 
+  /* --------------------------------------------------------------------------
+   * Seven-segment digits for the phase clock -- drawn, not typeset, so the
+   * timer looks like the LED display on a real bench timer: every segment
+   * faintly visible when unlit, the lit ones glowing.
+   * ------------------------------------------------------------------------ */
+  var SEGMENTS = {
+    '0': 'abcdef', '1': 'bc', '2': 'abdeg', '3': 'abcdg', '4': 'bcfg', '5': 'acdfg',
+    '6': 'acdefg', '7': 'abc', '8': 'abcdefg', '9': 'abcdfg', '-': 'g', ' ': ''
+  };
+
+  function segPath(ctx, x1, y1, x2, y2, t) {
+    var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy) || 1;
+    var ux = dx / L, uy = dy / L, nx = -uy * t / 2, ny = ux * t / 2, k = t / 2;
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 + ux * k + nx, y1 + uy * k + ny);
+    ctx.lineTo(x2 - ux * k + nx, y2 - uy * k + ny);
+    ctx.lineTo(x2, y2);
+    ctx.lineTo(x2 - ux * k - nx, y2 - uy * k - ny);
+    ctx.lineTo(x1 + ux * k - nx, y1 + uy * k - ny);
+    ctx.closePath();
+  }
+
+  /** One digit cell at (x, y), w wide and h tall, italicised like real LEDs. */
+  function segDigit(ctx, ch, x, y, w, h, t, on, off) {
+    var skew = 0.12, gap = t * 0.55;
+    function P(px, py) { return { x: x + px + (h - py) * skew, y: y + py }; }
+    var pts = {
+      a: [P(0, 0), P(w, 0)], b: [P(w, 0), P(w, h / 2)], c: [P(w, h / 2), P(w, h)],
+      d: [P(0, h), P(w, h)], e: [P(0, h / 2), P(0, h)], f: [P(0, 0), P(0, h / 2)],
+      g: [P(0, h / 2), P(w, h / 2)]
+    };
+    var lit = SEGMENTS[ch] || '';
+    ['a', 'b', 'c', 'd', 'e', 'f', 'g'].forEach(function (key) {
+      var p = pts[key], dx = p[1].x - p[0].x, dy = p[1].y - p[0].y;
+      var L = Math.sqrt(dx * dx + dy * dy) || 1, ux = dx / L * gap, uy = dy / L * gap;
+      ctx.beginPath();
+      segPath(ctx, p[0].x + ux, p[0].y + uy, p[1].x - ux, p[1].y - uy, t);
+      var isOn = lit.indexOf(key) >= 0;
+      ctx.fillStyle = isOn ? on : off;
+      ctx.shadowBlur = isOn ? t * 2.2 : 0;
+      ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+  }
+
+  /** "27.3" under a minute, "1:05" above it. */
+  function clockText(sec) {
+    var s = Math.max(0, sec);
+    if (s >= 59.95) {
+      var m = Math.floor(s / 60), r = Math.floor(s - m * 60);
+      return (m < 10 ? ' ' + m : String(m)) + ':' + (r < 10 ? '0' + r : r);
+    }
+    var tenths = Math.floor(s * 10 + 1e-6);
+    var whole = Math.floor(tenths / 10);
+    return (whole < 10 ? ' ' + whole : String(whole)) + '.' + (tenths % 10);
+  }
+
+  function drawClockDigits(canvas, text, on, off) {
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var cssW = canvas.clientWidth || 120, cssH = canvas.clientHeight || 40;
+    var W = Math.round(cssW * dpr), H = Math.round(cssH * dpr);
+    if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.shadowColor = on;
+    var h = H * 0.72, w = h * 0.5, t = Math.max(2, h * 0.13);
+    var y = (H - h) / 2, x = W * 0.06;
+    var cell = w + t * 2.4;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (ch === '.' || ch === ':') {
+        ctx.fillStyle = on;
+        ctx.shadowBlur = t * 2;
+        var cx = x + t * 0.4;
+        if (ch === '.') {
+          ctx.beginPath(); ctx.arc(cx, y + h - t * 0.5, t * 0.62, 0, Math.PI * 2); ctx.fill();
+        } else {
+          ctx.beginPath(); ctx.arc(cx + h * 0.08, y + h * 0.3, t * 0.55, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(cx, y + h * 0.72, t * 0.55, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+        x += t * 1.8;
+        continue;
+      }
+      segDigit(ctx, ch, x, y, w, h, t, on, off);
+      x += cell;
+    }
+  }
+
   function starRow(n, max) {
     var row = h('span.stars');
     for (var i = 0; i < (max || 3); i++) {
@@ -148,7 +238,24 @@
       h('span', { html: '⟳' }), 'Turn your phone sideways for a bigger bench'
     ]);
 
-    root.appendChild(h('div.stage-wrap', {}, [canvas, ui.els.statusStrip, ui.els.rotateHint]));
+    /* Timed levels: the clock, the banners that announce each phase, and the
+     * card that holds the level until the player starts the clock. */
+    ui.els.phaseClock = h('div.phase-clock', { hidden: true, 'aria-live': 'off' }, [
+      h('div.pc-side', {}, [
+        h('span.pc-label', { text: 'Phase' }),
+        ui.els.pcPips = h('span.pc-pips')
+      ]),
+      h('div.pc-glass', {}, [ui.els.pcDigits = h('canvas.pc-digits', { 'aria-hidden': 'true' })]),
+      h('div.pc-side.pc-right', {}, [
+        ui.els.pcName = h('span.pc-name', { text: '' }),
+        ui.els.pcTry = h('span.pc-try', { text: '' })
+      ])
+    ]);
+    ui.els.banner = h('div.phase-banner', { hidden: true, role: 'status' });
+    ui.els.phaseStart = h('div.phase-start', { hidden: true });
+
+    root.appendChild(h('div.stage-wrap', {}, [canvas, ui.els.statusStrip, ui.els.rotateHint,
+                                               ui.els.phaseClock, ui.els.banner, ui.els.phaseStart]));
     root.appendChild(hudTop);
     root.appendChild(hudBottom);
     root.appendChild(ui.els.overlay);
@@ -175,6 +282,95 @@
     };
 
     /* ==================================================================
+     * Timed levels
+     * ================================================================ */
+    var clockShown = { text: null, cls: null, pips: null, name: null, tries: null };
+
+    ui.updatePhaseClock = function (v) {
+      var el = ui.els.phaseClock;
+      if (!v) {
+        if (!el.hidden) { el.hidden = true; clockShown.text = null; ui.measureInsets(); }
+        return;
+      }
+      if (el.hidden) { el.hidden = false; ui.measureInsets(); }
+
+      var running = v.state === 'running';
+      var cls = 'phase-clock is-' + v.state +
+        (running && v.timeLeft <= 10 ? ' danger' : '') +
+        (running && v.timeLeft <= 5 ? ' critical' : '');
+      if (cls !== clockShown.cls) { el.className = cls; clockShown.cls = cls; clockShown.text = null; }
+
+      var pipKey = v.count + ':' + v.index + ':' + v.state;
+      if (pipKey !== clockShown.pips) {
+        clockShown.pips = pipKey;
+        clear(ui.els.pcPips);
+        for (var i = 0; i < v.count; i++) {
+          var done = i < v.index || (i === v.index && (v.state === 'clear' || v.state === 'done'));
+          ui.els.pcPips.appendChild(h('i' + (done ? '.done' : (i === v.index ? '.now' : ''))));
+        }
+      }
+
+      var shown = v.state === 'armed' ? v.time : v.timeLeft;
+      var text = clockText(shown);
+      if (text !== clockShown.text) {
+        clockShown.text = text;
+        var on = '#ff3b2e', off = 'rgba(255,59,46,0.10)';
+        if (v.state === 'clear' || v.state === 'done') { on = '#62ff8c'; off = 'rgba(98,255,140,0.10)'; }
+        else if (v.state === 'armed' || v.state === 'intro') { on = '#ffb13b'; off = 'rgba(255,177,59,0.10)'; }
+        drawClockDigits(ui.els.pcDigits, text, on, off);
+      }
+
+      var name = (v.index + 1) + '/' + v.count + (v.name ? ' · ' + v.name : '');
+      if (name !== clockShown.name) { clockShown.name = name; ui.els.pcName.textContent = name; }
+      var tries = v.attempt > 1 ? 'Attempt ' + v.attempt : (v.failures ? v.failures + ' rewind' + (v.failures > 1 ? 's' : '') : 'First attempt');
+      if (tries !== clockShown.tries) { clockShown.tries = tries; ui.els.pcTry.textContent = tries; }
+    };
+
+    var bannerTimer = null;
+    ui.banner = function (kicker, title, sub, kind, ms) {
+      var b = ui.els.banner;
+      clear(b);
+      b.className = 'phase-banner' + (kind ? ' ' + kind : '');
+      if (kicker) b.appendChild(h('div.pb-kicker', { text: kicker }));
+      b.appendChild(h('div.pb-title', { text: title }));
+      if (sub) b.appendChild(h('div.pb-sub', { text: sub }));
+      b.hidden = false;
+      void b.offsetWidth;
+      b.classList.add('in');
+      clearTimeout(bannerTimer);
+      if (ms) bannerTimer = setTimeout(ui.hideBanner, ms);
+    };
+    ui.hideBanner = function () {
+      clearTimeout(bannerTimer);
+      ui.els.banner.classList.remove('in');
+      ui.els.banner.hidden = true;
+    };
+
+    ui.showPhaseStart = function (level) {
+      var c = clear(ui.els.phaseStart);
+      var total = level.phases.reduce(function (a, p) { return a + p.time; }, 0);
+      c.appendChild(h('div.ps-head', {}, [
+        h('span.ps-kicker', { text: '⏱ Timed level · ' + level.phases.length + ' phases · ' + Math.round(total) + ' seconds' }),
+        h('span.ps-rule', { text: 'Miss a phase’s clock and it rewinds, pieces and all — again and again, until you beat it.' })
+      ]));
+      c.appendChild(h('ol.ps-list', {}, level.phases.map(function (p, i) {
+        return h('li', {}, [
+          h('span.ps-n', { text: String(i + 1) }),
+          h('span.ps-name', { text: p.name || 'Phase ' + (i + 1) }),
+          h('span.ps-time', { text: Math.round(p.time) + 's' })
+        ]);
+      })));
+      c.appendChild(h('button.big-btn.primary.ps-go', {
+        onclick: function () { game.startClock(); }
+      }, [h('span', { text: 'Start the clock' }), h('kbd', { text: 'Enter' })]));
+      c.hidden = false;
+    };
+    ui.hidePhaseStart = function () {
+      ui.els.phaseStart.hidden = true;
+      clear(ui.els.phaseStart);
+    };
+
+    /* ==================================================================
      * HUD
      * ================================================================ */
     ui.refreshHUD = function () {
@@ -188,6 +384,12 @@
           text: tags.indexOf('finale') >= 0 ? 'Final boss' : 'Boss'
         }));
       }
+      if (tags.indexOf('impossible') >= 0 && tags.indexOf('boss') < 0) {
+        ui.els.levelName.appendChild(h('span.boss-chip.impossible-chip', { text: 'Impossible' }));
+      }
+      if (lvl.phases) {
+        ui.els.levelName.appendChild(h('span.boss-chip.timed-chip', { text: '⏱ Timed' }));
+      }
       ui.els.levelSub.textContent = (chapter ? chapter.name : '') +
         (lvl.blurb ? ' — ' + lvl.blurb : '');
 
@@ -195,6 +397,17 @@
       clear(ui.els.parBox);
       if (lvl.sandbox) {
         ui.els.parBox.appendChild(h('span.par-label', { text: 'Sandbox' }));
+      } else if (lvl.phases) {
+        var ps = game.scene && game.scene.phase;
+        ui.els.parBox.appendChild(h('span.par-item', { title: 'Current phase' }, [
+          h('span.par-k', { text: 'phase' }),
+          h('span.par-v.good', { text: ((ps ? ps.index : 0) + 1) + '/' + lvl.phases.length })
+        ]));
+        ui.els.parBox.appendChild(h('span.par-item', { title: 'Rewinds so far -- none for three stars' }, [
+          h('span.par-k', { text: 'rewinds' }),
+          h('span.par-v' + (ps && ps.failures ? '.over' : '.good'), { text: String(ps ? ps.failures : 0) })
+        ]));
+        ui.els.parBox.appendChild(starRow(game.starsFor(lvl.id)));
       } else {
         var ev = game.lastEval || { objects: 0, bounces: 0 };
         ui.els.parBox.appendChild(h('span.par-item', {
@@ -287,6 +500,13 @@
         var b = el.getBoundingClientRect();
         if (b.height > 0) top = Math.max(top, b.bottom);
       });
+      /* A timed level's clock hangs under the HUD, and the stage fits below
+       * it -- the clock must never cover the bench it is timing. */
+      root.style.setProperty('--hud-bottom', Math.round(top) + 'px');
+      if (!ui.els.phaseClock.hidden) {
+        var cb = ui.els.phaseClock.getBoundingClientRect();
+        if (cb.height > 0) top = Math.max(top, cb.bottom);
+      }
 
       var tray = ui.els.tray;
       var tb = tray.getBoundingClientRect();
@@ -448,7 +668,11 @@
             h('span.level-num', { text: lvl.sandbox ? '∞' : String(i + 1) }),
             h('span.level-title', { text: lvl.name }),
             lvl.sandbox ? h('span.level-tag', { text: 'sandbox' }) : ui.starRow(stars),
-            isBoss ? h('span.boss-flag', { text: 'BOSS' }) : null
+            lvl.phases ? h('span.level-tag.timed', { text: '⏱ ' + lvl.phases.length + ' phases' }) : null,
+            isBoss ? h('span.boss-flag', {
+              text: lvl.tags.indexOf('finale') >= 0 ? 'FINAL' : 'BOSS'
+            }) : (lvl.tags && lvl.tags.indexOf('impossible') >= 0
+              ? h('span.boss-flag.impossible', { text: 'IMPOSSIBLE' }) : null)
           ]);
         }))
       ]));
@@ -486,18 +710,30 @@
     var par = lvl.par || {};
     var next = game.nextLevelAfter(lvl.id);
 
-    var lines = [
-      ['Objects used', ev.objects + (par.objects !== undefined ? ' (par ' + par.objects + ')' : '')],
-      ['Interactions', ev.bounces + (par.bounces !== undefined ? ' (par ' + par.bounces + ')' : '')],
-      ['Light delivered', ev.receivers.map(function (r) {
-        return r.intensity.toFixed(2);
-      }).join(' · ')]
-    ];
-    if (data.seconds) lines.push(['Time', data.seconds.toFixed(1) + 's']);
+    var lines;
+    var ph = data.phases;
+    if (ph) {
+      lines = [
+        ['Phases', ph.count + ' cleared'],
+        ['Rewinds', String(ph.failures)],
+        ['Attempts per phase', ph.results.map(function (r) { return r ? r.attempts : '—'; }).join(' · ')],
+        ['Clock used', data.seconds.toFixed(1) + 's'],
+        ['Pieces on the bench', String(ev.objects)]
+      ];
+    } else {
+      lines = [
+        ['Objects used', ev.objects + (par.objects !== undefined ? ' (par ' + par.objects + ')' : '')],
+        ['Interactions', ev.bounces + (par.bounces !== undefined ? ' (par ' + par.bounces + ')' : '')],
+        ['Light delivered', ev.receivers.map(function (r) {
+          return r.intensity.toFixed(2);
+        }).join(' · ')]
+      ];
+      if (data.seconds) lines.push(['Time', data.seconds.toFixed(1) + 's']);
+    }
 
     var body = [
       h('div.win-stars', {}, [ui.starRow(stars)]),
-      h('p.win-note', { text: starMessage(stars, par) }),
+      h('p.win-note', { text: ph ? phaseStarMessage(stars) : starMessage(stars, par) }),
       h('div.win-table', {}, lines.map(function (l) {
         return h('div.readout-line', {}, [
           h('span.rk', { text: l[0] }), h('span.rv', { text: l[1] })
@@ -521,7 +757,10 @@
         text: 'Save clip', onclick: function (e) { game.exportClip(e.target); }
       }),
       h('button.big-btn', {
-        text: 'Retry', onclick: function () { ui.hideScreen(); game.resetLevel(); }
+        text: 'Retry', onclick: function () {
+          ui.hideScreen();
+          if (ph) game.restartLevel(); else game.resetLevel();
+        }
       })
     ];
     if (next) {
@@ -537,6 +776,12 @@
 
     return ui.overlayShell('Solved — ' + lvl.name, lvl.blurb || '', body, actions);
   };
+
+  function phaseStarMessage(stars) {
+    if (stars >= 3) return 'Every phase on its first attempt. Nerves of steel.';
+    if (stars === 2) return 'Two rewinds or fewer. Beat every clock first time for three stars.';
+    return 'Done, the hard way. Now try it without a rewind.';
+  }
 
   function starMessage(stars, par) {
     if (stars >= 3) return 'At or under par on both counts. Nothing wasted.';
@@ -575,6 +820,8 @@
       toggle('Colourblind mode', 'colorblind',
         'Beams also carry a dash pattern, and colour targets show a symbol, so hue is never the only cue.',
         function () { game.applySettings(); }),
+      toggle('Open every chapter', 'openAll',
+        'Play any chapter without collecting stars first. Stars still count.'),
       toggle('Reduced motion', 'reducedMotion',
         'Beams appear instantly instead of travelling; weather and particles are switched off.',
         function () { game.applySettings(); }),
@@ -663,7 +910,9 @@
         ['Arrow keys', 'Nudge — Shift for fine'],
         ['[ and ]', 'Rotate one degree — Shift for a quarter'],
         ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
-        ['R  ·  H', 'Reset  ·  hint']
+        ['R  ·  H', 'Reset  ·  hint'],
+        ['Enter', 'Start a timed level’s clock'],
+        ['R on a timed level', 'Restart the phase (counts as an attempt)']
       ].reduce(function (acc, pair) {
         acc.push(h('dt', { text: pair[0] }));
         acc.push(h('dd', { text: pair[1] }));

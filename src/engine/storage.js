@@ -136,7 +136,9 @@
     quality: 'high',
     showHints: true,
     snapDefault: false,
-    haptics: true
+    haptics: true,
+    /* Every chapter playable regardless of stars -- for jumping ahead. */
+    openAll: false
   };
 
   function loadSettings() {

@@ -27,6 +27,13 @@
  * ray goes and how much energy reaches each sensor, so what lights a sensor is
  * always the crisp core line, never the glow around it.
  *
+ * TIMED LEVELS. The game hands the renderer an `fx` block each frame: `power`
+ * (1 normally; flickering to 0 when a phase's clock runs out and the bench
+ * loses power) and `alarm` (the red beacon that sweeps the room in a phase's
+ * last seconds). Hardware still waiting for its phase is drawn as what it
+ * would be on a real bench: a sensor socket, a slot a wall will rise from,
+ * a lamp standing dark.
+ *
  * BEAM TRAVEL. Every segment carries the distance along its path at which it
  * starts and ends (t0/t1). A single advancing `lightFront` distance therefore
  * animates the whole branching tree correctly for free: a branch three bounces
@@ -230,6 +237,9 @@
     var scene = state.scene;
     var theme = state.theme || {};
     r.theme = theme;
+    var fx = state.fx || NO_FX;
+    r.power = fx.power === undefined ? 1 : M.clamp(fx.power, 0, 1);
+    r.alarm = fx.alarm || 0;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
@@ -258,6 +268,7 @@
     ctx.save();
     ctx.translate(sx, sy);
     drawZones(r, ctx, theme, scene, state);
+    drawCables(r, ctx, scene);
     drawWalls(r, ctx, theme, scene);
     drawElements(r, ctx, theme, scene, state, false);
     ctx.restore();
@@ -271,10 +282,13 @@
     ctx.save();
     drawElements(r, ctx, theme, scene, state, true);
     drawParticles(r, ctx);
+    drawInstallFx(r, ctx, scene);
     drawOverlay(r, ctx, theme, scene, state);
     ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
+
+  var NO_FX = { power: 1, alarm: 0 };
 
   /* --------------------------------------------------------------------------
    * The tabletop.
@@ -367,6 +381,7 @@
       if (!el.isWall) continue;
       var pts = el._prims[0].pts;
       var bb = el._bbox;
+      if (el.disabled) { drawWallSlot(r, ctx, el, scene); continue; }
 
       /* A block of hardwood standing on the table. */
       ctx.save();
@@ -462,6 +477,9 @@
     lc.globalCompositeOperation = 'source-over';
     var amb = S.fromHex(theme.ambient || '#b0a494');
     var lvl = theme.ambientLevel === undefined ? 0.42 : theme.ambientLevel;
+    /* A power cut takes the work lamp with it; a little daylight remains. */
+    var power = r.power === undefined ? 1 : r.power;
+    lvl *= 0.3 + 0.7 * power;
     lc.fillStyle = 'rgb(' + Math.round(amb.r * 255 * lvl) + ',' +
                    Math.round(amb.g * 255 * lvl) + ',' + Math.round(amb.b * 255 * lvl) + ')';
     lc.fillRect(0, 0, L.width, L.height);
@@ -471,8 +489,8 @@
 
     /* A work lamp hanging somewhere over the middle of the bench. */
     var pool = lc.createRadialGradient(760, 360, 40, 800, 430, 1000);
-    pool.addColorStop(0, 'rgba(255,224,178,0.30)');
-    pool.addColorStop(0.55, 'rgba(255,224,178,0.10)');
+    pool.addColorStop(0, 'rgba(255,224,178,' + (0.30 * power) + ')');
+    pool.addColorStop(0.55, 'rgba(255,224,178,' + (0.10 * power) + ')');
     pool.addColorStop(1, 'rgba(255,224,178,0)');
     lc.fillStyle = pool;
     lc.fillRect(-100, -100, WORLD_W + 200, WORLD_H + 200);
@@ -481,14 +499,18 @@
       auroraLight(r, lc, theme);
     }
 
+    if (r.alarm > 0.01) beaconLight(r, lc);
+    if (power < 0.6) emergencyLight(r, lc, 1 - power);
+
     /* Every lamp spills light forward, not just down its beam. */
     for (var e = 0; e < scene.emitters.length; e++) {
       var em = scene.emitters[e];
-      lampSpill(lc, em, S.resolveColor(em.color), 340, em.width ? 0.75 : 0.5, 0.34);
+      if (em.disabled || power < 0.02) continue;
+      lampSpill(lc, em, S.resolveColor(em.color), 340, em.width ? 0.75 : 0.5, 0.34 * power);
     }
 
     var res = scene.lastResult;
-    if (res) {
+    if (res && power > 0.02) {
       var segs = res.segments, front = r.lightFront;
       lc.lineCap = 'round';
       for (var i = 0; i < segs.length; i++) {
@@ -498,7 +520,7 @@
         var col = S.colClamp(S.colNormalize(s.c));
 
         /* The beam lights the boards along its whole length... */
-        var ex = expose(v.inten);
+        var ex = expose(v.inten) * power;
         lc.strokeStyle = S.toCSS(col, ex * 0.30);
         lc.lineWidth = 70 + ex * 60;
         lc.beginPath(); lc.moveTo(v.a.x, v.a.y); lc.lineTo(v.b.x, v.b.y); lc.stroke();
@@ -521,7 +543,8 @@
     /* A satisfied sensor glows onto the wood around it. */
     for (var k = 0; k < scene.receivers.length; k++) {
       var rc = scene.receivers[k];
-      if (!rc._state || !rc._state.lit || (rc.require && rc.require.dark)) continue;
+      if (!rc._state || !rc._state.lit || rc.disabled || (rc.require && rc.require.dark)) continue;
+      if (power < 0.05) continue;
       var rq = rc.require || {};
       var rcCol = rq.color && rq.color !== 'any' ? S.resolveColor(rq.color)
                 : (rq.wavelength ? S.wavelengthRGB(rq.wavelength) : { r: 1, g: 0.95, b: 0.85 });
@@ -531,6 +554,40 @@
       lc.fillStyle = gr;
       lc.fillRect(rc.x - rc.radius * 6, rc.y - rc.radius * 6, rc.radius * 12, rc.radius * 12);
     }
+  }
+
+  /**
+   * The beacon: a red lamp turning above the bench in a phase's last seconds.
+   * Its beam sweeps the tabletop like the real thing, and the whole room
+   * picks up a little of its colour on every pass.
+   */
+  function beaconLight(r, lc) {
+    var k = M.clamp(r.alarm, 0, 1);
+    var a = r.time * 4.2;
+    var cx = WORLD_W / 2, cy = -40;
+    var sweep = 0.5 + 0.5 * Math.cos(a);
+    lc.fillStyle = 'rgba(255,40,24,' + (0.10 * k * (0.4 + 0.6 * sweep)) + ')';
+    lc.fillRect(-100, -100, WORLD_W + 200, WORLD_H + 200);
+    var dir = Math.PI / 2 + Math.sin(a) * 1.05;
+    var g = lc.createRadialGradient(cx, cy, 20, cx, cy, 1150);
+    g.addColorStop(0, 'rgba(255,60,40,' + (0.55 * k) + ')');
+    g.addColorStop(1, 'rgba(255,60,40,0)');
+    lc.fillStyle = g;
+    lc.beginPath();
+    lc.moveTo(cx, cy);
+    lc.arc(cx, cy, 1150, dir - 0.2, dir + 0.2);
+    lc.closePath();
+    lc.fill();
+  }
+
+  /** The emergency light that stays on through a power cut. */
+  function emergencyLight(r, lc, k) {
+    var pulse = 0.7 + 0.3 * Math.sin(r.time * 6);
+    var g = lc.createRadialGradient(80, WORLD_H - 60, 10, 80, WORLD_H - 60, 900);
+    g.addColorStop(0, 'rgba(255,70,40,' + (0.5 * k * pulse) + ')');
+    g.addColorStop(1, 'rgba(255,70,40,0)');
+    lc.fillStyle = g;
+    lc.fillRect(-100, -100, WORLD_W + 200, WORLD_H + 200);
   }
 
   /** Light fanning out of a lamp's lens onto the table in front of it. */
@@ -603,6 +660,8 @@
     var scene = state.scene;
     var res = scene.lastResult;
     if (!res) return;
+    var power = r.power === undefined ? 1 : r.power;
+    if (power < 0.02) return;
 
     var gc = r.glowCtx;
     var gs = r.glowScale;
@@ -684,12 +743,14 @@
     var ctx = r.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = power;
     if (r.quality !== 'low' && supportsFilter(ctx)) {
       ctx.filter = 'blur(' + (r.quality === 'high' ? 6 : 3) + 'px)';
       ctx.drawImage(r.glow, 0, 0, r.view.w, r.view.h);
       ctx.filter = 'none';
     }
     ctx.drawImage(r.glow, 0, 0, r.view.w, r.view.h);
+    ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
 
@@ -700,6 +761,7 @@
    */
   function drawDust(r, state) {
     if (r.reducedMotion || !r.dust || !r.dust.length) return;
+    if (r.power !== undefined && r.power < 0.05) return;
     var scene = state.scene, res = scene.lastResult;
     if (!res) return;
     var front = r.lightFront, segs = res.segments;
@@ -778,10 +840,19 @@
    * OPTICAL HARDWARE -- glass, silver, brass and black anodised aluminium
    * ======================================================================= */
   function drawElements(r, ctx, theme, scene, state, foreground) {
+    var phaseNow = scene.phase ? scene.phase.index + 1 : 1;
     for (var i = 0; i < scene.elements.length; i++) {
       var el = scene.elements[i];
+      el._future = !!el.disabled && el.phase !== undefined && el.phase > phaseNow;
       if (el.isWall) continue;
       var isGoal = el.type === 'receiver' || el.type === 'emitter';
+      if (el.disabled) {
+        /* Hardware switched off on a timed level: a lamp still stands there,
+         * dark; everything else is a fitting set into the bench. */
+        if (el.type === 'emitter') { if (foreground) drawEmitter(r, ctx, el, theme, 0); }
+        else if (!foreground) drawSocket(r, ctx, el, scene);
+        continue;
+      }
       /* Goals draw on top of the light; optics draw beneath it. */
       if (foreground !== isGoal) continue;
       if (el.motion) drawMotionRig(r, ctx, el, theme);
@@ -1277,8 +1348,9 @@
     ctx.stroke();
   }
 
-  function drawEmitter(r, ctx, el, theme) {
+  function drawEmitter(r, ctx, el, theme, powerOverride) {
     var col = S.resolveColor(el.color);
+    var pw = powerOverride === undefined ? (r.power === undefined ? 1 : r.power) : powerOverride;
     ctx.save();
     ctx.translate(el.x, el.y);
     ctx.rotate(el.angle);
@@ -1321,8 +1393,11 @@
     ctx.arc(12, 0, 11.5, 0, M.TAU);
     ctx.stroke();
     var lens = ctx.createRadialGradient(10, -2, 1, 12, 0, 10);
-    lens.addColorStop(0, S.toCSS(S.colAdd(S.colScale(col, 0.4), { r: 0.6, g: 0.6, b: 0.6 }), 1));
-    lens.addColorStop(1, S.toCSS(S.colScale(col, 0.85), 1));
+    /* An unpowered lamp shows cold glass with only a hint of its filter. */
+    var cold = S.colAdd({ r: 0.05, g: 0.05, b: 0.06 }, S.colScale(col, 0.14));
+    var hot = S.colAdd(S.colScale(col, 0.4), { r: 0.6, g: 0.6, b: 0.6 });
+    lens.addColorStop(0, S.toCSS(S.colAdd(S.colScale(hot, pw), S.colScale(cold, 1 - pw)), 1));
+    lens.addColorStop(1, S.toCSS(S.colAdd(S.colScale(col, 0.85 * pw), S.colScale(cold, 1 - pw)), 1));
     ctx.fillStyle = lens;
     ctx.beginPath();
     ctx.arc(12, 0, 9.5, 0, M.TAU);
@@ -1341,7 +1416,10 @@
     ctx.restore();
 
     /* Lens flare: a bloom and a thin streak across the lens. */
-    if (!r.reducedMotion || true) {
+    if (el._future) drawPhaseTag(r, ctx, el.x, el.y - 40, el);
+    if (pw > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = pw;
       var lx = el.x + Math.cos(el.angle) * 12, ly = el.y + Math.sin(el.angle) * 12;
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -1363,6 +1441,7 @@
       ctx.beginPath();
       ctx.arc(0, 0, 80, 0, M.TAU);
       ctx.fill();
+      ctx.restore();
       ctx.restore();
     }
   }
@@ -1430,7 +1509,7 @@
       return;
     }
 
-    var lit = st.lit;
+    var lit = st.lit && (r.power === undefined || r.power > 0.5);
 
     var brass = ctx.createLinearGradient(-R, -R, R, R);
     brass.addColorStop(0, '#f4d69c');
@@ -1507,7 +1586,205 @@
       ctx.fillStyle = 'rgba(255,240,215,0.9)';
       textAt(ctx, r, req.wavelength + 'nm', 0, R + Math.max(20, 15 * worldPerCss(r)));
     }
+    if (st.latched) {
+      /* A timed level's sensor whose phase is done: a green pilot lamp on
+       * the housing says it no longer needs light. */
+      var lr = Math.max(6, 5 * worldPerCss(r));
+      var lpx = R * 0.78, lpy = -R * 0.78;
+      ctx.globalCompositeOperation = 'lighter';
+      var lg = ctx.createRadialGradient(lpx, lpy, 0, lpx, lpy, lr * 3);
+      lg.addColorStop(0, 'rgba(120,255,150,0.75)');
+      lg.addColorStop(1, 'rgba(120,255,150,0)');
+      ctx.fillStyle = lg;
+      ctx.beginPath(); ctx.arc(lpx, lpy, lr * 3, 0, M.TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.beginPath(); ctx.arc(lpx, lpy, lr, 0, M.TAU);
+      ctx.fillStyle = '#9dffb4'; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = '#1b3a22'; ctx.stroke();
+    }
     ctx.restore();
+  }
+
+  /* ==========================================================================
+   * TIMED LEVELS -- hardware waiting for its phase
+   * ======================================================================= */
+
+  /** A small brass tag stamped with the phase a fitting is waiting for. */
+  function drawPhaseTag(r, ctx, x, y, el) {
+    var s = Math.max(1, worldPerCss(r) * 0.95);
+    var w = 30 * s, h = 17 * s;
+    ctx.save();
+    ctx.translate(x, y);
+    if (r.view.rot) ctx.rotate(-Math.PI / 2);
+    shadowOn(ctx, r, 0.45, 0.6);
+    roundRect(ctx, -w / 2, -h / 2, w, h, 4 * s);
+    var g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    g.addColorStop(0, '#f1d49a');
+    g.addColorStop(1, '#9c7334');
+    ctx.fillStyle = g;
+    ctx.fill();
+    shadowOff(ctx);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(40,24,6,0.8)';
+    ctx.stroke();
+    ctx.fillStyle = '#2b1a07';
+    ctx.font = '800 ' + Math.round(11 * s) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('P' + el.phase, 0, 0.5 * s);
+    ctx.restore();
+  }
+
+  /**
+   * A fitting set into the bench: the socket a sensor will rise from, or the
+   * chalked outline and mounting holes of optics still to be installed. It
+   * lies flush with the table, which is why light passes straight over it.
+   */
+  function drawSocket(r, ctx, el, scene) {
+    ctx.save();
+    if (el.type === 'receiver') {
+      var R0 = el.radius + 7;
+      var g = ctx.createRadialGradient(el.x, el.y, el.radius * 0.25, el.x, el.y, R0);
+      g.addColorStop(0, 'rgba(0,0,0,0.62)');
+      g.addColorStop(0.85, 'rgba(0,0,0,0.38)');
+      g.addColorStop(1, 'rgba(0,0,0,0.12)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(el.x, el.y, R0, 0, M.TAU); ctx.fill();
+      ctx.lineWidth = 3.2;
+      ctx.strokeStyle = (el.require && el.require.dark) ? 'rgba(170,70,60,0.6)' : 'rgba(205,165,95,0.6)';
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,240,205,0.16)';
+      ctx.beginPath(); ctx.arc(el.x - 1, el.y - 1, R0 - 2.5, 0, M.TAU); ctx.stroke();
+      for (var k = 0; k < 3; k++) {
+        var a = -Math.PI / 2 + k * (M.TAU / 3);
+        brassBolt(ctx, el.x + Math.cos(a) * (R0 - 6), el.y + Math.sin(a) * (R0 - 6), 2.6);
+      }
+    } else {
+      /* Chalk on the wood: where the part will be bolted down. */
+      var p = el._prims[0];
+      ctx.setLineDash([7, 7]);
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(255,244,222,0.30)';
+      if (p && p.kind === 'poly') polyPath(ctx, p.pts); else surfacePath(ctx, el);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      var ends = endsOf(el);
+      (ends || [{ x: el.x, y: el.y }]).forEach(function (e) {
+        ctx.beginPath(); ctx.arc(e.x, e.y, 3.4, 0, M.TAU);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fill();
+      });
+    }
+    ctx.restore();
+    if (el._future) drawPhaseTag(r, ctx, el.x, el.y - (el.radius || 22) - 30, el);
+  }
+
+  /** The steel channel a wall rises from, striped so no one parks a mirror on it. */
+  function drawWallSlot(r, ctx, el, scene) {
+    var pts = el._prims[0].pts, bb = el._bbox;
+    var phaseNow = scene.phase ? scene.phase.index + 1 : 1;
+    ctx.save();
+    polyPath(ctx, pts);
+    ctx.fillStyle = 'rgba(10,8,7,0.58)';
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(235,175,45,0.20)';
+    ctx.beginPath();
+    for (var t = -bb.h; t < bb.w + bb.h; t += 20) {
+      ctx.moveTo(bb.x + t, bb.y);
+      ctx.lineTo(bb.x + t - bb.h, bb.y + bb.h);
+    }
+    ctx.stroke();
+    ctx.restore();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(200,205,215,0.34)';
+    polyPath(ctx, pts);
+    ctx.stroke();
+    ctx.restore();
+    if (el.phase !== undefined && el.phase > phaseNow) {
+      drawPhaseTag(r, ctx, el.x, el.y, el);
+    }
+  }
+
+  /** A bright ring where hardware has just risen, switched on or been re-set. */
+  function drawInstallFx(r, ctx, scene) {
+    var any = false;
+    for (var i = 0; i < scene.elements.length; i++) {
+      var el = scene.elements[i];
+      if (el._fxT === undefined) continue;
+      var age = r.time - el._fxT;
+      if (age < 0 || age > 0.9) continue;
+      if (!any) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; any = true; }
+      var k = 1 - age / 0.9;
+      var reach = el.isWall ? Math.max(el.w, el.h) * 0.55 : Math.max(30, E.handleReach(el));
+      ctx.lineWidth = 3 + 5 * k;
+      ctx.strokeStyle = 'rgba(255,226,170,' + (0.75 * k) + ')';
+      ctx.beginPath();
+      ctx.arc(el.x, el.y, reach * (0.7 + age * 0.9), 0, M.TAU);
+      ctx.stroke();
+    }
+    if (any) ctx.restore();
+  }
+
+  /**
+   * Every lamp is plugged in: a rubber mains lead runs from the back of its
+   * housing to the nearest edge of the bench and over it. Decoration only --
+   * but a lamp with a lead reads as an object, not an icon.
+   */
+  function drawCables(r, ctx, scene) {
+    if (!scene.emitters.length) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (var i = 0; i < scene.emitters.length; i++) {
+      var c = cableFor(scene.emitters[i]);
+      ctx.beginPath();
+      ctx.moveTo(c[0].x, c[0].y);
+      ctx.bezierCurveTo(c[1].x, c[1].y, c[2].x, c[2].y, c[3].x, c[3].y);
+      shadowOn(ctx, r, 0.5, 0.5);
+      ctx.lineWidth = 6.5;
+      ctx.strokeStyle = '#0e0c0b';
+      ctx.stroke();
+      shadowOff(ctx);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(255,248,236,0.12)';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function cableFor(em) {
+    var key = em.x + ',' + em.y + ',' + em.angle;
+    if (em._cable && em._cable.key === key) return em._cable.pts;
+    var dx = Math.cos(em.angle), dy = Math.sin(em.angle);
+    var p0 = { x: em.x - dx * 34, y: em.y - dy * 34 };
+    var edges = [
+      { x: -14, y: p0.y, nx: 1, ny: 0, tx: 0, ty: 1, d: p0.x },
+      { x: WORLD_W + 14, y: p0.y, nx: -1, ny: 0, tx: 0, ty: 1, d: WORLD_W - p0.x },
+      { x: p0.x, y: -14, nx: 0, ny: 1, tx: 1, ty: 0, d: p0.y },
+      { x: p0.x, y: WORLD_H + 14, nx: 0, ny: -1, tx: 1, ty: 0, d: WORLD_H - p0.y }
+    ];
+    /* Prefer the edge behind the lamp: a lead does not run out in front of
+     * its own beam if it can help it. */
+    var best = edges[0], bestScore = Infinity;
+    edges.forEach(function (e) {
+      var facing = dx * e.nx + dy * e.ny;
+      var score = e.d * (facing > 0.3 ? 1 : 2.4);
+      if (score < bestScore) { bestScore = score; best = e; }
+    });
+    var h = Math.sin(em.x * 12.9898 + em.y * 78.233) * 43758.5453;
+    var slide = ((h - Math.floor(h)) - 0.5) * 140;
+    var end = { x: best.x + best.tx * slide, y: best.y + best.ty * slide };
+    var pts = [
+      p0,
+      { x: p0.x - dx * 80, y: p0.y - dy * 80 },
+      { x: end.x + best.nx * 110, y: end.y + best.ny * 110 },
+      end
+    ];
+    em._cable = { key: key, pts: pts };
+    return pts;
   }
 
   /** The rod, rail, turntable or orbit an element is mounted on. */

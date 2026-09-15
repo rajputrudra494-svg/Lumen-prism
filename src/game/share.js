@@ -27,7 +27,10 @@
     wavelength: 'wl', require: 'rq', minIntensity: 'mi', maxIntensity: 'xi',
     minBeams: 'mb', wavelengthTolerance: 'wt', polarization: 'pz',
     dark: 'dk', count: 'n', preset: 'p', motion: 'mo', disperse: 'ds',
-    thermal: 'th', exitOffset: 'eo', id: 'd'
+    thermal: 'th', exitOffset: 'eo', id: 'd',
+    /* Timed levels in phases. */
+    phases: 'phs', phase: 'ph', until: 'un', time: 'tm', goals: 'gl', keep: 'kp',
+    holdTime: 'ht', move: 'mv', remove: 'rm', set: 'st'
   };
   var UNMAP = (function () {
     var u = {};
@@ -146,7 +149,9 @@
       receivers: (level.receivers || []).map(slimElement),
       fixed: (level.fixed || []).map(slimElement),
       walls: level.walls && level.walls.length ? level.walls.map(function (w) {
-        return [round(w.x, 0), round(w.y, 0), round(w.w, 0), round(w.h, 0)];
+        var a = [round(w.x, 0), round(w.y, 0), round(w.w, 0), round(w.h, 0)];
+        if (w.phase !== undefined || w.until !== undefined) a.push(w.phase || 0, w.until || 0);
+        return a;
       }) : undefined,
       zones: level.zones && level.zones.length ? level.zones.map(function (z) {
         return [round(z.x, 0), round(z.y, 0), round(z.w, 0), round(z.h, 0)];
@@ -155,7 +160,13 @@
       par: level.par || undefined,
       holdTime: level.holdTime || undefined,
       sandbox: level.sandbox || undefined,
-      solution: level.solution ? level.solution.map(fullElement) : undefined
+      solution: level.solution ? level.solution.map(fullElement) : undefined,
+      phases: level.phases ? level.phases.map(function (ph) {
+        var out = {};
+        for (var key in ph) if (Object.prototype.hasOwnProperty.call(ph, key) && ph[key] !== undefined) out[key] = ph[key];
+        if (ph.solution) out.solution = ph.solution.map(fullElement);
+        return out;
+      }) : undefined
     };
     /* Strip undefined so they do not become "null" in the JSON. */
     for (var k in payload) if (payload[k] === undefined) delete payload[k];
@@ -181,7 +192,11 @@
       receivers: p.receivers || [],
       fixed: p.fixed || [],
       walls: (p.walls || []).map(function (a) {
-        return Array.isArray(a) ? { x: a[0], y: a[1], w: a[2], h: a[3] } : a;
+        if (!Array.isArray(a)) return a;
+        var w = { x: a[0], y: a[1], w: a[2], h: a[3] };
+        if (a[4]) w.phase = a[4];
+        if (a[5]) w.until = a[5];
+        return w;
       }),
       zones: (p.zones || []).map(function (a) {
         return Array.isArray(a) ? { x: a[0], y: a[1], w: a[2], h: a[3] } : a;
@@ -191,9 +206,11 @@
       holdTime: p.holdTime,
       sandbox: p.sandbox,
       solution: p.solution,
+      phases: p.phases,
       shared: true
     };
     if (!lvl.zones.length) delete lvl.zones;
+    if (!lvl.phases) delete lvl.phases;
     validate(lvl);
     return lvl;
   }
@@ -211,6 +228,7 @@
     if ((lvl.receivers || []).length > 16) throw new Error('Too many receivers.');
     if ((lvl.fixed || []).length > 120) throw new Error('Too many fixed objects.');
     if ((lvl.inventory || []).length > 24) throw new Error('Inventory too large.');
+    if (lvl.phases !== undefined) validatePhases(lvl);
 
     var w = lvl.world.w, h = lvl.world.h;
     if (!(w > 200 && w <= 4000 && h > 200 && h <= 4000)) {
@@ -232,6 +250,51 @@
       if (d.angle !== undefined) d.angle = +d.angle || 0;
     });
     return true;
+  }
+
+  /**
+   * A timed level's phases, from an untrusted code: bounded counts, clocks
+   * that are neither instant nor endless, known piece types, and changes to
+   * hardware that stay on the bench.
+   */
+  function validatePhases(lvl) {
+    var list = lvl.phases;
+    if (!Array.isArray(list) || !list.length) { delete lvl.phases; return; }
+    if (list.length > 8) throw new Error('Too many phases.');
+    var w = lvl.world.w, h = lvl.world.h;
+    lvl.phases = list.map(function (ph) {
+      if (!ph || typeof ph !== 'object') throw new Error('Malformed phase.');
+      var out = {
+        name: String(ph.name || '').slice(0, 60),
+        time: M.clamp(+ph.time || 30, 5, 600),
+        solution: Array.isArray(ph.solution) ? ph.solution.slice(0, 40) : []
+      };
+      if (ph.hint) out.hint = String(ph.hint).slice(0, 240);
+      if (ph.keep) out.keep = true;
+      if (ph.holdTime !== undefined) out.holdTime = M.clamp(+ph.holdTime || 0, 0, 30);
+      if (ph.fog !== undefined) out.fog = M.clamp(+ph.fog || 0, 0, 0.01);
+      if (Array.isArray(ph.goals)) out.goals = ph.goals.slice(0, 16).map(String);
+      if (Array.isArray(ph.inventory)) {
+        out.inventory = ph.inventory.slice(0, 12).map(function (slot) {
+          if (!slot || !E.TYPES[slot.type]) throw new Error('Unknown object type in a phase.');
+          slot.count = Math.max(0, Math.min(40, slot.count === undefined ? 1 : slot.count | 0));
+          return slot;
+        });
+      }
+      if (Array.isArray(ph.set)) {
+        out.set = ph.set.slice(0, 16).map(function (c) {
+          if (c.x !== undefined) c.x = M.clamp(+c.x || 0, -500, w + 500);
+          if (c.y !== undefined) c.y = M.clamp(+c.y || 0, -500, h + 500);
+          return c;
+        });
+      }
+      out.solution.forEach(function (op) {
+        if (op.move === undefined && op.remove === undefined && !E.TYPES[op.type]) {
+          throw new Error('Unknown object type in a phase answer.');
+        }
+      });
+      return out;
+    });
   }
 
   /* ==========================================================================

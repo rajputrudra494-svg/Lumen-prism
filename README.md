@@ -20,6 +20,7 @@ something draws a rainbow.
 - [The physics](#the-physics)
 - [The bench and the light](#the-bench-and-the-light)
 - [Phones](#phones)
+- [Timed levels](#timed-levels)
 - [Project layout](#project-layout)
 - [Tests](#tests)
 - [Levels](#levels)
@@ -61,7 +62,8 @@ Stars are awarded for solving at or under par:
 | ★★☆ | Within one object of par |
 | ★★★ | At or under par on **both** objects and interactions |
 
-Using a hint caps that level at two stars.
+Using a hint caps that level at two stars. Timed levels score nerve instead of
+thrift — see [Timed levels](#timed-levels).
 
 ---
 
@@ -87,6 +89,8 @@ Select a piece and its controls appear around it:
 | Double-click (mouse) | Return a piece to the tray |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `R` · `H` | Reset the level · hint |
+| `Enter` / `Space` | Start a timed level's clock |
+| `R` on a timed level | Restart the current phase — it counts as an attempt |
 | `Esc` | Close a panel, or cancel placement |
 
 Colours and glass that a level hands you are part of the puzzle, so their
@@ -175,10 +179,9 @@ engine — that drives element transforms only, so the optics solver never knows
 anything is moving.
 
 - **Pendulum** — integrates `θ'' = −(g/L)sinθ − bθ'` without the small-angle
-  approximation, because at the amplitudes these puzzles use a real pendulum is
-  measurably slower than the linearised one. You do not steer it; **where you
-  drop it sets the release angle**, and it can only hold a beam on target at the
-  top of its swing, where it is momentarily still.
+  approximation, because at large amplitudes a real pendulum is measurably
+  slower than the linearised one. It lives in the Moving Parts sandbox; the one
+  story level built on it ("Release") has been retired.
 - **Turntable, track, orbit** — constant rotation, eased linear travel, circular
   paths.
 - **Beat mirror** — steps a fixed angle on each beat and rests in between; the
@@ -205,7 +208,8 @@ then assembled from that board with random offsets, flips, lengths and stain
 per plank, and finished with seams, end joints, knots and a varnish sheen. It
 builds in about 15 ms. Each chapter has its own species and room light — maple
 under cool lab light, walnut by moonlight, charred cedar in the Spire, limed oak
-under violet in the Event Horizon.
+under violet in the Event Horizon, busy striped zebrano in the Hall of Mirages,
+red padauk for Zero Hour and near-black wenge for The Impossible.
 
 **Lighting is a multiply pass.** A low-resolution light map holds the room's
 faint ambient, a hanging lamp, the pool each beam throws onto the boards, the
@@ -223,16 +227,17 @@ glow rather than burn out to flat white.
 
 **This is rendering, not physics.** The tracer still decides exactly where each
 ray goes and how much energy reaches each sensor; what lights a sensor is always
-the crisp core, never the glow around it. That is why all 75 levels still verify
+the crisp core, never the glow around it. That is why every level still verifies
 unchanged.
 
 Hardware is drawn as the real thing: silvered glass whose reflected highlight
 slides as the mirror turns, brass cap screws, black anodised clamps and ring
 mounts, glass with polished edges and internal reflections, a holographic sheen
 on the grating, lamp housings with cooling fins and a lens flare, and brass
-photocells under glass domes. Everything casts a soft shadow away from the work
-light — rotated by hand when the stage is turned, since canvas shadow offsets
-ignore the transform.
+photocells under glass domes. Every lamp is plugged in, with a rubber mains lead
+running off the edge of the bench, and flickers on as a level loads. Everything
+casts a soft shadow away from the work light — rotated by hand when the stage is
+turned, since canvas shadow offsets ignore the transform.
 
 ---
 
@@ -256,6 +261,43 @@ A frame draws in under 1 ms on a desktop and about 3 ms on an emulated phone.
 
 ---
 
+## Timed levels
+
+The Zero Hour chapter, and the final boss, are played **in phases against a
+clock**. Each phase has its own goal and its own time — usually 30 seconds,
+down to 10 in the quickest rounds.
+
+- **Beat the clock** and the phase clears. Then the bench changes under you:
+  walls rise out of slots in the table, lamps switch on or die, alarms arm,
+  smoke thickens, new pieces arrive in the tray.
+- **Miss it** and the phase **rewinds**: the lights cut out, every piece goes back
+  to exactly where it stood when the phase began, and the clock is wound back
+  up. Again and again, until you beat it. Restarting a phase by hand counts the
+  same as running out of time.
+- The level waits, armed, until you press **Start the clock**, so you can study
+  the bench first. The clock stops while a menu is open.
+- Hardware waiting for a later phase is already on the bench as what it would be
+  in a real lab — a sensor socket, a striped slot a wall will rise from, a lamp
+  standing dark — each tagged with its phase, so you can plan ahead. Sensors
+  whose phase is done show a green pilot lamp.
+- It is meant to feel like a real bench timer: a seven-segment LED clock drawn
+  segment by segment, a mechanical tick every second, electronic pips over the
+  last five, a red beacon sweeping the room over the last ten, a klaxon and a
+  power cut when time is up, and a three-pip count-in before every phase.
+
+Stars on a timed level: ★★★ every phase cleared on its first attempt, ★★ no
+more than two rewinds, ★ finished.
+
+The rules live in `src/engine/phases.js`, which is pure state with no DOM or
+clock of its own. A level declares its phases as data — each lamp, sensor, wall
+or fixture can carry `phase: n` (installed as phase n begins) or `until: n`
+(removed) — and `tools/verify.js` plays every timed level start to finish at 60
+ticks a second with its reference moves, checking each phase clears inside its
+time **with at least 3.5 seconds of slack per move** for a human hand, and that
+no phase can be cleared without its own moves.
+
+---
+
 ## Project layout
 
 ```
@@ -273,6 +315,7 @@ src/
   engine/
     props.js            Pendulum, turntable, track, orbit, beat, thermal drift
     scene.js            Level runtime, receiver evaluation, stars, undo snapshots
+    phases.js           Timed levels in phases: clock, goals, rewinds
     bench.js            Procedural wooden tabletop and dust motes
     renderer.js         Canvas 2D: table, light map, hardware, scattered light, overlay
     input.js            Pointer, touch and keyboard; gizmos and gestures
@@ -281,7 +324,7 @@ src/
     history.js          Undo / redo
   game/
     authoring.js        Level-authoring helpers, including the tracer probes
-    levels.js           75 levels across 11 chapters
+    levels.js           100 levels across 14 chapters
     share.js            URL-safe level codes
     daily.js            Procedural daily challenge
     replay.js           Ghost replay and clip export
@@ -306,7 +349,7 @@ tools with no shim and no build.
 ```bash
 node tools/test-optics.js    # 137 physics assertions
 node tools/verify.js         # every level is solvable
-node tools/test-content.js   # dailies, share round trips, editor, difficulty proofs
+node tools/test-content.js   # dailies, share round trips, editor, timed-level rules, difficulty proofs
 node tools/test-relay.js     # multiplayer protocol (needs the relay running)
 ```
 
@@ -316,25 +359,36 @@ Beer–Lambert, energy conservation across a splitter, and a pendulum period
 against the finite-amplitude correction `T ≈ T₀(1 + θ₀²/16)`. A regression shows
 up as a number that no longer matches theory.
 
-`verify.js` is the important one for content. For all 75 levels it checks that
+`verify.js` is the important one for content. For all 100 levels it checks that
 the level loads, is **not** already solved with nothing placed, that the shipped
 reference solution fits the declared inventory, that replaying it lights every
 sensor, that it earns three stars so par is actually achievable, and that the
-trace stays inside the per-frame performance budget. Timed levels are simulated
-forward until they solve.
+trace stays inside the per-frame performance budget. Levels with moving parts
+are simulated forward until they solve, and levels played in phases are played
+through phase by phase (see [Timed levels](#timed-levels)).
 
 `test-content.js` goes one step further for the hard chapters and proves their
 difficulty, not just their solvability: that an even split really does leave
 Split Decision's hungry sensor short, that no single polariser at any of 91
 angles unlocks Polar Lock, that removing any lamp from the Event Horizon leaves
 its gate shut, and that leaving Thermal Runaway's splitter at its default
-overheats the mirror.
+overheats the mirror. For the last three chapters it proves that every Hall of
+Mirages level really is a crowded bench with a two-piece answer; that Paradox
+jams on even splits and never opens for two beams; that no pair of filters at
+any angles opens Malus Maze; that aiming straight at the sensor behind The Wall
+misses; that Heat Death fails at both extremes of its splitter; and that the
+wrong splitter setting sinks the last phase of The Impossible.
+
+It also checks the rules of timed levels directly — the armed clock does not run,
+a paused clock stops, a timeout rewinds pieces and tray and counts the attempt,
+a manual restart costs the same, clearing a phase installs the next one — and
+plays every timed level through again after a share-code round trip.
 
 Authoring aids:
 
 ```bash
 node tools/probe.js '<json>'   # trace an arrangement and print every segment
-node tools/timeline.js clk-43  # step a moving level through time
+node tools/timeline.js clk-44  # step a moving level through time
 ```
 
 ### How levels are guaranteed solvable
@@ -358,11 +412,14 @@ physics can supply.
 
 ## Levels
 
-75 levels: 71 story levels across 10 themed chapters, plus 4 sandboxes. The
+100 levels: 96 story levels across 13 themed chapters, plus 4 sandboxes. The
 first eight chapters each introduce one optical idea, use it several ways, then
-combine it with the previous chapter's. The last two introduce nothing new —
-they take the slack out. Boss levels sit at every tenth stage — 10, 20, 30, 40,
-50, 60 and 70 — plus a chapter-ending boss at 63 and the final boss at 71.
+combine it with the previous chapter's. The next two introduce nothing new —
+they take the slack out. The last three are built to be hard in three different
+ways: benches that *look* far harder than they are, levels against the clock,
+and levels that look impossible. Bosses sit at 10, 20, 30, 40, 50, 60, 63, 70,
+71, 79, 87 and 90, and the final boss is 97. (Numbers follow the level ids;
+level 43, the pendulum level "Release", was removed.)
 
 | Chapter | Teaches |
 |---|---|
@@ -372,10 +429,13 @@ they take the slack out. Boss levels sit at every tenth stage — 10, 20, 30, 40
 | Sunken Reef | Absorption, fog, colour filters, budgets |
 | Neon Quarter | Beam splitting, one-way glass, polarisation |
 | Deep Space Relay | Portals, diffraction gratings, photon budgets |
-| Clockwork Tower | Turntables, pendulums, rails, rhythm, timing |
+| Clockwork Tower | Turntables, rails, orbits, rhythm, timing |
 | Aurora Fields | Heat management and full additive colour mixing |
 | **Obsidian Spire** | Precision: tight bays, alarms beside the obvious route, decoy gates, dialled split ratios |
 | **Event Horizon** | Mastery: relayed focus, Malus in small steps, diffraction orders, synchronised motion, a power budget |
+| **Hall of Mirages** | Benches crowded with decoys, machinery and alarms — each with a one- or two-piece answer |
+| **Zero Hour** | Timed levels in phases; miss a clock and the phase rewinds |
+| **The Impossible** | Levels that look unsolvable, and nearly are |
 | Open Bench | Four sandboxes with no goals at all |
 
 The two hard chapters, level by level:
@@ -397,9 +457,51 @@ The two hard chapters, level by level:
 | 68 | Clockwork Singularity | Two turntables that agree only for a moment every ten seconds |
 | 69 | Thermal Runaway | A split ratio window about 0.2 wide between overheating and starving |
 | 70 | **Accretion Disk** (boss) | White in, three pure colours out, an alarm under the green line |
-| 71 | **Event Horizon** (final boss) | Three primaries through one gate in a sealed wall, balanced to mix white |
+| 71 | **Event Horizon** (boss) | Three primaries through one gate in a sealed wall, balanced to mix white |
 
-Chapters unlock every 12 stars.
+Hall of Mirages — crowded to intimidate, short to solve:
+
+| # | Level | The catch |
+|---|---|---|
+| 72 | Hall of Mirrors | Sixteen bolted mirrors; six of them already make a road, and one mirror of yours starts it |
+| 73 | Twelve Locks | Twelve sensors on a lamp pointing at the ceiling — the splitter tree is already built |
+| 74 | Clockwork Panic | Six moving machines, none of them on the way: two mirrors go round them all |
+| 75 | Maze Runner | Fourteen walls, and a portal pair that turns it into two mirrors |
+| 76 | Colour Theory | Six wrong filters, prisms and a grating; the red filter is already lying on the bench |
+| 77 | Polar Night | Seven polarisers at odd angles; pass through only the one already upright |
+| 78 | Crowd | Six sensors, twelve pieces in the tray, one convex mirror needed |
+| 79 | **The Grand Illusion** (boss) | Three lamps, six sensors, a portal, machines and props — two pieces |
+
+Zero Hour — against the clock:
+
+| # | Level | Phases | The catch |
+|---|---|---|---|
+| 80 | Countdown | 30 · 30 · 25 s | A wall rises over your route, an alarm guards the shortcut, a red lamp joins |
+| 81 | Hot Swap | 30 · 30 · 25 s | One gate wants red, then blue, then magenta, as the lamps change |
+| 82 | Smoke | 30 · 30 · 25 s | The smoke thickens every phase; every route has to get shorter |
+| 83 | Split Second | 30 · 30 · 25 s | Every sensor must stay lit as new ones come on, from one lamp |
+| 84 | Tripwire | 30 · 30 · 25 s | Alarms rise out of the bench on the route you just built |
+| 85 | Clockwork | 30 · 30 · 25 s | A turntable is bolted in mid-level; then you must catch what it throws |
+| 86 | Chain Reaction | 18 · 15 · 12 · 10 s | One mirror, four lamps, less time every round |
+| 87 | **Detonator** (boss) | 30 · 30 · 25 · 20 s | Keep a yellow gate lit through three sabotages |
+
+The Impossible:
+
+| # | Level | The catch |
+|---|---|---|
+| 88 | Sealed | The sensor is shut in a box; its gate's twin outside must be entered from above, past five alarms, in green |
+| 89 | Needle's Thread | Seven turns through slits forty wide at angles no snap finds, with 80% of the light required |
+| 90 | **Paradox** (boss) | Three separate beams into one lock, inside a narrow brightness window, through smoke |
+| 91 | Spectral Lock | Pluck red, green and violet out of one rainbow, each between a pair of alarms |
+| 92 | Malus Maze | Upright light through crossed filters: two in between pass too little, three pass enough |
+| 93 | Heat Death | Two heat-warping mirrors on one lamp; one narrow split keeps both cool and both sensors fed |
+| 94 | Orrery | Two orbiting mirrors line up for a moment roughly every twenty-five seconds |
+| 95 | The Wall | The sensor is behind solid wood; a thick glass pane shifts the beam sideways |
+| 96 | Last Light | Ten turns through smoke with 90% of the best route's light demanded |
+| 97 | **The Impossible** (final boss) | Four timed phases: white through a sealed wall, a polarisation lock, a collapse, a tuned splitter |
+
+Chapters unlock every 12 stars. **Settings → Open every chapter** lets you jump
+ahead without them; stars still count.
 
 ---
 

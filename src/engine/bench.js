@@ -50,7 +50,10 @@
     cherry:   { name: 'Cherry',    light: '#b9744b', dark: '#6f3c22', grain: 10, figure: 5,   contrast: 0.6,  knots: 2, planks: 6 },
     charred:  { name: 'Charred cedar', light: '#4d3027', dark: '#140a08', grain: 9, figure: 10, contrast: 0.95, knots: 3, planks: 5 },
     smoked:   { name: 'Smoked oak', light: '#5d4a3e', dark: '#221914', grain: 7, figure: 8,  contrast: 0.85, knots: 2, planks: 6 },
-    limed:    { name: 'Limed oak', light: '#dcd4c6', dark: '#958a7b', grain: 7, figure: 9,  contrast: 0.9,  knots: 2, planks: 6 }
+    limed:    { name: 'Limed oak', light: '#dcd4c6', dark: '#958a7b', grain: 7, figure: 9,  contrast: 0.9,  knots: 2, planks: 6 },
+    zebrano:  { name: 'Zebrano',   light: '#d8c197', dark: '#4a3520', grain: 13, figure: 4,  contrast: 1.0,  knots: 0, planks: 6 },
+    padauk:   { name: 'Padauk',    light: '#b9563a', dark: '#692214', grain: 8,  figure: 6,  contrast: 0.72, knots: 1, planks: 6 },
+    wenge:    { name: 'Wenge',     light: '#6a5140', dark: '#1f1510', grain: 5,  figure: 3,  contrast: 0.92, knots: 0, planks: 7 }
   };
 
   var cache = {};

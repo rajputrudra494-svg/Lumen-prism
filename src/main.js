@@ -4,6 +4,14 @@
  * The game controller. Owns the loop, the current level, and the transitions
  * between playing, editing, replaying and multiplayer.
  *
+ * TIMED LEVELS
+ * A level played in phases (src/engine/phases.js) waits, armed, until the
+ * player starts the clock. From then on the phase engine reports events --
+ * a second gone, a phase cleared, time up, a rewind -- and this file turns
+ * them into what the player feels: the count-in, the ticking, the beacon in
+ * the last ten seconds, the power cut, pieces lifting back into the tray.
+ * The bench only takes input while a phase's clock is actually running.
+ *
  * THE LOOP
  * Fixed work per frame is deliberately small. The tracer only re-runs when the
  * scene is dirty (something moved) or when a level contains moving parts, so a
@@ -12,7 +20,7 @@
 (function (LP) {
   'use strict';
 
-  var R = LP.Renderer, Sc = LP.Scene, E = LP.Elements, M = LP.M, S = LP.Spectrum;
+  var R = LP.Renderer, Sc = LP.Scene, E = LP.Elements, M = LP.M, S = LP.Spectrum, Ph = LP.Phases;
 
   /* Stars required to open each successive chapter. */
   var STARS_PER_CHAPTER = 12;
@@ -40,7 +48,11 @@
       hintGhost: null,
       levelStart: 0,
       lastLit: {},
-      running: true
+      running: true,
+      /* What the lights are doing: `power` dips to nothing in a power cut,
+       * `alarm` drives the beacon in a phase's last seconds. */
+      fx: { power: 1, alarm: 0, from: 1, to: 1, t: 1, dur: 1 },
+      countIn: 0
     };
 
     /* ---- Renderer + UI ------------------------------------------------ */
@@ -174,6 +186,7 @@
       var o = opts || {};
       game.level = level;
       game.scene = Sc.fromLevel(level);
+      Ph.init(game.scene);
       game.history = LP.History.create(game.scene);
       game.selected = null;
       game.armedType = null;
@@ -194,11 +207,41 @@
       var ch = game.chapterOf(level);
       if (ch && LP.Audio.state.started) LP.Audio.setChapter(ch.mood);
 
+      /* The lamps come on as the level loads, with a flicker. */
+      game.fx.power = 0;
+      powerTo(1, 0.5);
+      game.fx.alarm = 0;
+      game.countIn = 0;
+
       game.ui.refresh();
       game.ui.hideScreen();
+      game.ui.hideBanner();
       updateStatusStrip();
+      if (game.scene.phase) {
+        game.ui.showPhaseStart(level);
+        game.ui.updatePhaseClock(phaseView(game.scene));
+      } else {
+        game.ui.hidePhaseStart();
+        game.ui.updatePhaseClock(null);
+      }
       game.ui.measureInsets();
       return game.scene;
+    };
+
+    /** Start again from the very first phase -- or simply reload a level. */
+    game.restartLevel = function () {
+      if (game.level) game.loadLevel(game.level);
+    };
+
+    /** Start a timed level's clock. */
+    game.startClock = function () {
+      var sc = game.scene;
+      if (!sc || !sc.phase || game.ui.screen) return;
+      if (!Ph.start(sc)) return;
+      LP.Audio.unlock();
+      game.ui.hidePhaseStart();
+      game.countIn = 4;
+      announcePhase(sc, 'start');
     };
 
     function hasPendulum(scene) {
@@ -262,6 +305,7 @@
     };
 
     game.chapterUnlocked = function (chapterId) {
+      if (game.settings.openAll) return true;
       return game.progress.totalStars >= game.starsNeededFor(chapterId);
     };
 
@@ -404,6 +448,17 @@
     };
 
     game.resetLevel = function () {
+      var ps = game.scene && game.scene.phase;
+      if (ps) {
+        /* On a timed level, reset means this phase, and it costs an attempt:
+         * otherwise it would be a free way to wind the clock back up. */
+        if (ps.state === 'done') { game.restartLevel(); return; }
+        var evs = Ph.restartPhase(game.scene);
+        if (!evs) return;
+        onPhaseEvents(evs);
+        game.ui.toast('Phase ' + (ps.index + 1) + ' restarted. That counts as an attempt.', 'bad', 2600);
+        return;
+      }
       LP.History.push(game.history);
       Sc.reset(game.scene);
       game.select(null);
@@ -428,7 +483,21 @@
         return;
       }
       var placed = game.scene.elements.filter(function (el) { return el.fromInventory; });
-      var target = lvl.solution.find(function (s) {
+      var answer = lvl.solution;
+      var ps = game.scene.phase;
+      if (ps) {
+        /* A timed level hints at the current phase's own pieces. */
+        var def = lvl.phases[ps.index];
+        answer = (def.solution || []).filter(function (op) {
+          return op.move === undefined && op.remove === undefined;
+        });
+        if (!answer.length) {
+          game.hintUsed = true;
+          game.ui.toast(def.hint || 'No new pieces this phase: move the ones already down.', null, 4200);
+          return;
+        }
+      }
+      var target = answer.find(function (s) {
         return !placed.some(function (p) {
           return p.type === s.type && Math.hypot(p.x - s.x, p.y - s.y) < 45;
         });
@@ -448,15 +517,17 @@
      * ================================================================ */
     function checkSolve(dt) {
       if (!game.scene || game.mode === 'editorBuild' || game.mode === 'replay') return;
-      var ev = Sc.tickSolve(game.scene, dt);
+      var ev = Sc.tickSolve(game.scene, dt, { paused: !!game.ui.screen });
       game.lastEval = ev;
+      if (ev.events && ev.events.length) onPhaseEvents(ev.events);
+      if (ev.phase) game.ui.updatePhaseClock(ev.phase);
 
       /* Chime once per receiver as it comes on. */
       ev.receivers.forEach(function (r, i) {
         var was = game.lastLit[r.id];
         /* Alarms count as satisfied while they stay DARK -- that is not a
          * moment to celebrate, so they get no chime and no burst. */
-        if (r.lit && !was && !r.dark) {
+        if (r.lit && !was && !r.dark && !r.inactive) {
           var rc = game.scene.receivers[i];
           LP.Audio.chime(i / Math.max(1, ev.receivers.length));
           buzz(15);
@@ -486,6 +557,8 @@
 
     function onSolved(ev) {
       var seconds = (performance.now() - game.levelStart) / 1000;
+      var ps = game.scene.phase;
+      if (ps) seconds = ps.running;
       var stars = game.hintUsed ? Math.min(2, ev.stars || 1) : (ev.stars || 1);
 
       LP.Audio.fanfare();
@@ -529,11 +602,162 @@
       });
 
       setTimeout(function () {
+        game.ui.hideBanner();
         game.ui.showScreen('win', {
           level: game.level, ev: ev, stars: stars, seconds: seconds,
-          isDaily: !!game.level.isDaily
+          isDaily: !!game.level.isDaily,
+          phases: ps ? { count: ps.count, failures: ps.failures, results: ps.results } : null
         });
-      }, 900);
+      }, ps ? 1200 : 900);
+    }
+
+    /* ==================================================================
+     * Timed levels: turning phase events into light, sound and banners
+     * ================================================================ */
+    function phaseView(scene) {
+      var ps = scene.phase;
+      if (!ps) return null;
+      var def = scene.level.phases[ps.index];
+      return {
+        index: ps.index, count: ps.count, name: def.name || '', state: ps.state,
+        time: ps.time, timeLeft: ps.timeLeft, attempt: ps.attempt, failures: ps.failures
+      };
+    }
+
+    function announcePhase(scene, why) {
+      var ps = scene.phase;
+      var def = scene.level.phases[ps.index];
+      var kicker = 'Phase ' + (ps.index + 1) + ' of ' + ps.count;
+      if (why === 'retry') kicker += ' · attempt ' + ps.attempt;
+      game.ui.banner(kicker, def.name || 'Go', Math.round(def.time) + ' seconds on the clock',
+                     why === 'retry' ? 'bad' : 'warn', 0);
+    }
+
+    function powerTo(target, dur) {
+      var fx = game.fx;
+      fx.from = fx.power;
+      fx.to = target;
+      fx.t = 0;
+      fx.dur = game.renderer.reducedMotion ? 0.0001 : dur;
+    }
+
+    function stepFx(dt) {
+      var fx = game.fx;
+      if (fx.t < fx.dur) {
+        fx.t += dt;
+        var k = Math.min(1, fx.t / fx.dur);
+        var base = fx.from + (fx.to - fx.from) * k;
+        /* Lamps do not fade: they stutter, catch, and hold. */
+        var stutter = k < 1 && Math.random() < 0.4 ? 0.15 + Math.random() * 0.6 : 1;
+        fx.power = k < 1 ? base * stutter : fx.to;
+      }
+      var ps = game.scene && game.scene.phase;
+      var want = 0;
+      if (ps && ps.state === 'running' && ps.timeLeft <= 10 && !game.ui.screen) {
+        want = 0.4 + 0.6 * (1 - ps.timeLeft / 10);
+      }
+      fx.alarm += (want - fx.alarm) * Math.min(1, dt * 5);
+
+      /* The count-in: three pips, then the clock is live. */
+      if (ps && ps.state === 'intro' && !game.ui.screen) {
+        var beat = Math.ceil(ps.stateT / (Ph.INTRO_TIME / 3));
+        if (beat < game.countIn && beat >= 1) LP.Audio.armBeep(false);
+        game.countIn = beat;
+      }
+    }
+
+    function onPhaseEvents(events) {
+      var sc = game.scene, rr = game.renderer;
+      var ps = sc.phase;
+      events.forEach(function (e) {
+        switch (e.type) {
+          case 'live':
+            LP.Audio.armBeep(true);
+            game.ui.hideBanner();
+            break;
+
+          case 'second':
+            if (e.left > 0) LP.Audio.clockTick(e.left);
+            if (e.left <= 5 && e.left > 0) buzz(10);
+            break;
+
+          case 'clear': {
+            LP.Audio.phaseClear();
+            buzz([18, 50, 24]);
+            sc.receivers.forEach(function (rc) {
+              if (rc.goal && !(rc.require && rc.require.dark)) {
+                R.burst(rr, { x: rc.x, y: rc.y }, { r: 0.6, g: 1, b: 0.7 }, 30);
+              }
+            });
+            var next = e.last ? null : game.level.phases[e.index + 1];
+            game.ui.banner('Phase ' + (e.index + 1) + ' clear',
+                           e.last ? 'Every phase done' : 'Well held',
+                           next ? 'Next: ' + (next.name || 'phase ' + (e.index + 2)) : '',
+                           'good', 0);
+            game.select(null);
+            break;
+          }
+
+          case 'timeout':
+            LP.Audio.buzzer();
+            LP.Audio.powerDown();
+            buzz([70, 50, 70]);
+            powerTo(0, 0.45);
+            rr.shake = 10;
+            game.select(null);
+            game.input.cancelGesture();
+            game.armedType = null;
+            game.ui.refreshTray();
+            game.ui.banner('Time up', 'Phase ' + (e.index + 1) + ' rewinds',
+                           'Every piece goes back to where the phase began', 'bad', 0);
+            break;
+
+          case 'rewound':
+            (e.pieces || []).forEach(function (p) {
+              R.burst(rr, p, { r: 1, g: 0.72, b: 0.45 }, 14);
+            });
+            break;
+
+          case 'retry':
+            LP.Audio.powerUp();
+            powerTo(1, 0.6);
+            afterBenchChange();
+            game.countIn = 4;
+            announcePhase(sc, 'retry');
+            break;
+
+          case 'install':
+          case 'retire':
+          case 'adjust':
+            e.el._fxT = rr.time;
+            if (e.type === 'install') R.burst(rr, { x: e.el.x, y: e.el.y }, { r: 1, g: 0.86, b: 0.62 }, 16);
+            break;
+
+          case 'begin': {
+            LP.Audio.relay();
+            afterBenchChange();
+            game.countIn = 4;
+            announcePhase(sc, 'begin');
+            var def = game.level.phases[e.index];
+            if (def.inventory && def.inventory.length) {
+              game.ui.toast('New pieces in the tray for this phase.', 'good', 2400);
+            }
+            break;
+          }
+        }
+      });
+      if (ps) game.ui.updatePhaseClock(phaseView(sc));
+    }
+
+    /** The bench changed under the player: new history, tray and light. */
+    function afterBenchChange() {
+      game.history = LP.History.create(game.scene);
+      game.select(null);
+      game.armedType = null;
+      game.hintGhost = null;
+      game.lastLit = {};
+      R.restartLight(game.renderer);
+      game.ui.refresh();
     }
 
     function checkChapterUnlock(before) {
@@ -552,7 +776,7 @@
       var lvl = game.level;
       if (!lvl) return;
       if (game.session) return;                 /* multiplayer owns the strip */
-      if (!lvl.holdTime) { game.ui.setStatus(null); return; }
+      if (!lvl.holdTime || lvl.phases) { game.ui.setStatus(null); return; }
       var p = Math.round((game.lastEval.holdProgress || 0) * 100);
       game.ui.setStatus(
         '<span class="strip-label">Hold all sensors lit</span>' +
@@ -691,7 +915,7 @@
 
         /* Pick a level that genuinely needs two sets of hands. */
         var pool = LP.Levels.LEVELS.filter(function (l) {
-          return !l.sandbox && !l.holdTime && (l.inventory || []).length >= 2;
+          return !l.sandbox && !l.holdTime && !l.phases && (l.inventory || []).length >= 2;
         });
         var lvl = pool[Math.floor(Math.random() * pool.length)];
         game.level = lvl;
@@ -789,6 +1013,17 @@
       lastFrameAt = now;
 
       if (game.scene) {
+        /* The bench takes input only while nothing is in the way: no open
+         * screen, and on a timed level, only while the clock is running. */
+        var ps = game.scene.phase;
+        var locked = !!(ps && game.mode === 'play' && ps.state !== 'running');
+        var wantInput = !game.ui.screen && !locked;
+        if (game.input.enabled !== wantInput) {
+          game.input.enabled = wantInput;
+          if (!wantInput) game.input.cancelGesture();
+        }
+        stepFx(animDt);
+
         if (game.mode === 'replay' && game.replayPlayer) {
           if (game.replayPlayer.step(dt)) {
             game.mode = 'play';
@@ -825,10 +1060,11 @@
           hoverTray: !!game.armedType,
           preview: game.input.preview,
           ghost: game.input.ghost,
-          hint: game.hintGhost
+          hint: game.hintGhost,
+          fx: game.fx
         });
 
-        if (game.level && game.level.holdTime) updateStatusStrip();
+        if (game.level && game.level.holdTime && !game.level.phases) updateStatusStrip();
       }
       schedule();
     }
@@ -852,6 +1088,14 @@
       game.loadLevelById('lab-1');
       game.ui.showScreen('title');
     }
+
+    /* Enter or Space starts a timed level's clock. */
+    window.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      if (ev.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(ev.target.tagName)) return;
+      var ps = game.scene && game.scene.phase;
+      if (ps && ps.state === 'armed' && !game.ui.screen) { ev.preventDefault(); game.startClock(); }
+    });
 
     /* Global escape: leave whatever overlay is open. */
     window.addEventListener('keydown', function (ev) {

@@ -7,11 +7,14 @@
  *   - every daily challenge for the next two years is generated, solvable,
  *     deterministic, and not a free win
  *   - every shipped level survives a share-code round trip unchanged
+ *   - the rules of timed levels in phases: the clock, pausing, rewinds,
+ *     restarts, stars
+ *   - the hard levels are hard in the ways they claim
  * ========================================================================== */
 'use strict';
 const { loadCore } = require('./load');
 const LP = loadCore();
-const { Daily, Share, Scene, Levels } = LP;
+const { Daily, Share, Scene, Levels, Phases } = LP;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -70,6 +73,17 @@ for (const lvl of Levels.LEVELS) {
 
   /* The decoded level must still be solvable by its own solution. */
   if (lvl.sandbox) { pass++; continue; }
+  if (lvl.phases) {
+    try {
+      const rep = Phases.simulate(back);
+      ok('decoded timed level still plays through: ' + lvl.id,
+         rep.completed && back.phases.length === lvl.phases.length,
+         'failed at phase ' + (rep.failedAt + 1));
+    } catch (e) {
+      ok('decoded timed level still plays through: ' + lvl.id, false, String(e.message || e));
+    }
+    continue;
+  }
   try {
     const sc = Scene.fromLevel(back);
     const placed = Scene.applySolution(sc, back.solution);
@@ -266,8 +280,162 @@ ok('clamps wild coordinates',
 
   /* Every boss level is tagged, and the final chapter ends on one. */
   const bosses = Levels.LEVELS.filter(l => (l.tags || []).indexOf('boss') >= 0).map(l => l.id);
-  ok('boss levels exist in the new chapters',
-     ['spr-60', 'spr-63', 'hzn-70', 'hzn-71'].every(id => bosses.indexOf(id) >= 0), bosses.join(','));
+  ok('boss levels exist in the hard chapters',
+     ['spr-60', 'spr-63', 'hzn-70', 'hzn-71', 'mir-79', 'zro-87', 'imp-90', 'imp-97']
+       .every(id => bosses.indexOf(id) >= 0), bosses.join(','));
+  const finales = Levels.LEVELS.filter(l => (l.tags || []).indexOf('finale') >= 0 && (l.tags || []).indexOf('boss') >= 0).map(l => l.id);
+  ok('exactly one final boss, and it is the last story level',
+     finales.length === 1 && finales[0] === Levels.LEVELS.filter(l => !l.sandbox).pop().id, finales.join(','));
+  ok('the pendulum level "Release" is gone', !Levels.LEVELS.some(l => l.id === 'clk-43'));
+})();
+
+/* ---- 7. Timed levels in phases ----------------------------------------------
+ * The rules a player lives by: the clock waits until started, stops for menus,
+ * and a phase that runs out of time rewinds -- pieces, tray and all. */
+(function () {
+  const dt = 1 / 60;
+  const lvl = Levels.LEVELS.find(l => l.id === 'zro-80');
+  const sc = Scene.fromLevel(lvl);
+  Phases.init(sc);
+  const ps = sc.phase;
+  ok('a timed level waits, armed, until the clock is started', ps.state === 'armed');
+  for (let i = 0; i < 120; i++) Phases.tick(sc, dt);
+  ok('an armed clock does not run', ps.state === 'armed' && ps.timeLeft === lvl.phases[0].time);
+  ok('later hardware starts switched off',
+     sc.elements.filter(e => e.phase === 2).every(e => e.disabled) &&
+     sc.elements.filter(e => e.phase === undefined && e.until === undefined).every(e => !e.disabled));
+
+  Phases.start(sc);
+  let t = 0;
+  while (ps.state !== 'running' && t < 5) { Phases.tick(sc, dt); t += dt; }
+  ok('the count-in hands over to a running clock', ps.state === 'running' &&
+     Math.abs(t - Phases.INTRO_TIME) < 0.05, t.toFixed(2));
+
+  const before = ps.timeLeft;
+  for (let i = 0; i < 60; i++) Phases.tick(sc, dt, { paused: true });
+  ok('the clock stops while a menu is open', ps.timeLeft === before);
+
+  /* A wrong piece, then let the clock run out. */
+  Scene.place(sc, 'mirror', 500, 700, { angle: 0.4 });
+  const events = [];
+  for (let i = 0; i < 60 * 40 && !(ps.attempt > 1 && ps.state === 'intro'); i++) {
+    Phases.tick(sc, dt).events.forEach(e => events.push(e.type));
+  }
+  ok('running out of time fires a timeout, then a rewind',
+     events.indexOf('timeout') >= 0 && events.indexOf('rewound') > events.indexOf('timeout') &&
+     events.indexOf('retry') > events.indexOf('rewound'), events.filter(e => e !== 'second').join(' '));
+  ok('a rewind takes the phase’s pieces back to the tray',
+     sc.elements.filter(e => e.fromInventory).length === 0 && sc.inventory.every(s => s.used === 0));
+  ok('a rewind winds the clock back up and counts the attempt',
+     ps.timeLeft === lvl.phases[0].time && ps.attempt === 2 && ps.failures === 1);
+
+  const evs = Phases.restartPhase(sc);
+  ok('restarting a phase costs an attempt, like a timeout', !!evs && ps.failures === 2 && ps.attempt === 3);
+
+  ok('stars on a timed level: 3 clean, 2 for up to two rewinds, 1 beyond',
+     Phases.stars({ failures: 0 }) === 3 && Phases.stars({ failures: 2 }) === 2 && Phases.stars({ failures: 3 }) === 1);
+
+  /* Clearing phase one installs phase two. */
+  while (ps.state !== 'running') Phases.tick(sc, dt);
+  Phases.applyMoves(sc, lvl.phases[0].solution, []);
+  while (ps.state === 'running' || ps.state === 'clear') Phases.tick(sc, dt);
+  const byId = id => sc.receivers.find(r => r.id === id);
+  ok('clearing a phase moves on to the next', ps.index === 1);
+  ok('the next phase’s sensor becomes the goal; the last one is latched',
+     byId('z80B').goal === true && !byId('z80B').disabled && byId('z80A').latched === true && byId('z80A').goal === false);
+  ok('the next phase’s wall rises', sc.elements.filter(e => e.isWall && e.phase === 2).every(e => !e.disabled));
+  ok('alarms are watched in every phase they stand in',
+     sc.receivers.filter(r => r.require && r.require.dark && !r.disabled).every(r => r.goal === true));
+
+  /* Every timed level: replays rebuild the last phase's bench. */
+  Levels.LEVELS.filter(l => l.phases).forEach(l => {
+    const f = Phases.fastForward(Scene.fromLevel(l));
+    const granted = l.inventory.length + l.phases.reduce((a, p) => a + (p.inventory || []).length, 0);
+    ok('fast-forward reaches the final phase with every piece handed out: ' + l.id,
+       f.phase.index === l.phases.length - 1 && f.inventory.length === granted);
+  });
+})();
+
+/* ---- 8. The last three chapters are hard in the ways they claim -------------- */
+(function () {
+  const { M, Authoring: A } = LP;
+  const find = id => Levels.LEVELS.find(l => l.id === id);
+  const copy = o => JSON.parse(JSON.stringify(o));
+  function evalWith(lvl, sol) {
+    const sc = Scene.fromLevel(lvl);
+    Scene.applySolution(sc, sol);
+    return Scene.evaluate(sc);
+  }
+
+  /* Hall of Mirages: a crowded bench, a short answer. */
+  Levels.LEVELS.filter(l => l.chapter === 'mirage').forEach(l => {
+    const clutter = (l.fixed || []).length + (l.walls || []).length + l.receivers.length;
+    ok('mirage level looks crowded but has a short answer: ' + l.id,
+       l.solution.length <= 2 && clutter >= 8, 'pieces ' + l.solution.length + ', clutter ' + clutter);
+  });
+
+  /* Paradox: even splits overload the lock; two beams are never enough. */
+  const p90 = find('imp-90');
+  const even = copy(p90.solution); even[0].ratio = 0.5; even[2].ratio = 0.5;
+  const evEven = evalWith(p90, even).receivers[0];
+  ok('imp-90: even splits bring too much light', !evEven.lit, evEven.reason + ' I=' + evEven.intensity.toFixed(3));
+  const twoBeams = copy(p90.solution).slice(0, 3);
+  const ev2 = evalWith(p90, twoBeams).receivers[0];
+  ok('imp-90: two beams never open a three-beam lock', !ev2.lit, ev2.reason);
+
+  /* Malus Maze: no pair of filters, at any angles, passes enough. */
+  const p92 = find('imp-92');
+  const need92 = p92.receivers[0].require.minIntensity;
+  let best2 = 0, beaten = null;
+  for (let a = 0; a <= 90; a += 5) {
+    for (let b = a; b <= 90; b += 5) {
+      const sol = copy(p92.solution).slice(0, 2).concat([
+        { type: 'polarizer', x: 560, y: 600, angle: M.rad(a), radius: 40 },
+        { type: 'polarizer', x: 900, y: 150, angle: M.rad(b), radius: 40 }
+      ]);
+      const r = evalWith(p92, sol).receivers[0];
+      best2 = Math.max(best2, r.intensity);
+      if (r.lit) beaten = a + '/' + b;
+    }
+  }
+  ok('imp-92: two filters can never open the lock', beaten === null && best2 < need92,
+     'best ' + best2.toFixed(3) + ' vs ' + need92 + (beaten ? ' lit at ' + beaten : ''));
+
+  /* The Wall: aiming where the beam LOOKS like it goes misses. */
+  const p95 = find('imp-95');
+  const S95 = p95.receivers[0];
+  const m95 = p95.solution[0];
+  const naiveAim = { type: 'mirror', x: m95.x, y: m95.y, length: m95.length,
+    angle: A.aimAngle({ x: 120, y: 120 }, m95, { x: S95.x, y: S95.y }) };
+  ok('imp-95: aiming straight at the sensor through the pane misses it',
+     !evalWith(p95, [naiveAim]).receivers[0].lit);
+
+  /* Heat Death: the default split cooks one mirror; so does leaning the other way. */
+  const p93 = find('imp-93');
+  function heatSolved(ratio) {
+    const sc = Scene.fromLevel(p93);
+    const sol = copy(p93.solution); sol[0].ratio = ratio;
+    Scene.applySolution(sc, sol);
+    for (let t = 0; t < 26; t += 1 / 60) if (Scene.tickSolve(sc, 1 / 60).solved) return true;
+    return false;
+  }
+  ok('imp-93: the splitter’s default setting fails', !heatSolved(0.2));
+  ok('imp-93: leaning the split the other way fails too', !heatSolved(0.8));
+
+  /* The Impossible: in the last phase, an even splitter chills the white lock. */
+  const p97 = copy(find('imp-97'));
+  p97.phases[3].solution[0].ratio = 0.5;
+  ok('imp-97: the last phase fails with the splitter left at half', Phases.simulate(p97).failedAt === 3);
+
+  /* Split Second: in phase three, an even new splitter starves the first sensor. */
+  const z83 = copy(find('zro-83'));
+  z83.phases[2].solution[0].ratio = 0.5;
+  ok('zro-83: an even second split starves the first sensor', Phases.simulate(z83).failedAt === 2);
+
+  /* Tripwire: the phase-one route is alarmed in phase two. */
+  const z84 = copy(find('zro-84'));
+  z84.phases[1].solution = [];
+  ok('zro-84: the first route trips the second phase’s alarms', Phases.simulate(z84).failedAt === 1);
 })();
 
 console.log('');

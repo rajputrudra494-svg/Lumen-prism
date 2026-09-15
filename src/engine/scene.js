@@ -37,14 +37,23 @@
     };
 
     E.resetIds();
+    var phased = !!(level.phases && level.phases.length);
 
     function add(def, locked, fromInv) {
       var opts = {};
-      for (var k in def) if (Object.prototype.hasOwnProperty.call(def, k)) opts[k] = def[k];
+      for (var k in def) {
+        if (Object.prototype.hasOwnProperty.call(def, k) && def[k] !== undefined) opts[k] = def[k];
+      }
       var type = opts.type; delete opts.type;
       var el = E.create(type, opts);
       el.locked = locked === undefined ? !!def.locked : locked;
       el.fromInventory = !!fromInv;
+      /* On a phased level, hardware that belongs to a later phase is on the
+       * bench from the start but switched off (see phases.js). */
+      if (phased && (el.phase !== undefined || el.until !== undefined)) {
+        el.disabled = !((el.phase === undefined || el.phase <= 1) &&
+                        (el.until === undefined || el.until > 1));
+      }
       scene.elements.push(el);
       scene.byId[el.id] = el;
       return el;
@@ -68,7 +77,7 @@
     for (i = 0; i < (level.walls || []).length; i++) {
       var w = level.walls[i];
       var wall = add({ type: 'absorber', x: w.x + w.w / 2, y: w.y + w.h / 2,
-                       w: w.w, h: w.h, angle: 0 }, true);
+                       w: w.w, h: w.h, angle: 0, id: w.id, phase: w.phase, until: w.until }, true);
       wall.isWall = true;
     }
 
@@ -366,16 +375,26 @@
     var res = scene.lastResult;
     var states = [];
     var allLit = true;
+    var positive = 0;
     for (var i = 0; i < scene.receivers.length; i++) {
       var rc = scene.receivers[i];
       var st = evalReceiver(rc, res.deposits[rc.id]);
       rc._state = st;
       states.push(st);
+      /* A timed level's sensors that are not this phase's goals -- still
+       * waiting for their phase, or already done with -- do not count. */
+      if (rc.disabled || rc.goal === false) {
+        st.inactive = true;
+        st.latched = !!rc.latched;
+        continue;
+      }
+      if (!st.dark) positive++;
       if (!st.lit) allLit = false;
     }
     return {
       receivers: states,
       allLit: allLit,
+      positive: positive,
       objects: placedCount(scene),
       length: usedLength(scene),
       bounces: countPlayerBounces(scene, res)
@@ -397,7 +416,10 @@
   /* --------------------------------------------------------------------------
    * Solve state (with hold-time support for moving levels)
    * ------------------------------------------------------------------------ */
-  function tickSolve(scene, dt) {
+  function tickSolve(scene, dt, opts) {
+    /* A timed level in phases runs its own clock (phases.js). */
+    if (scene.phase && LP.Phases) return LP.Phases.tick(scene, dt, opts);
+
     /* Advance the world FIRST. `update` steps every moving prop, feeds the
      * previous frame's absorbed energy to the thermal ones, and re-traces if
      * anything actually changed -- so the evaluation below is of the scene as

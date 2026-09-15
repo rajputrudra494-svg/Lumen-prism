@@ -25,6 +25,7 @@ const CORE_FILES = [
   'src/optics/raytracer.js',
   'src/engine/props.js',
   'src/engine/scene.js',
+  'src/engine/phases.js',
   'src/game/authoring.js',
   'src/game/levels.js',
   'src/game/share.js',

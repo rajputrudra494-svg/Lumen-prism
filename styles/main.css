@@ -242,6 +242,131 @@ input, textarea, select { -webkit-user-select: text; user-select: text; }
 }
 
 /* ===========================================================================
+ * Timed levels: the phase clock, the phase banners and the start card
+ *
+ * The clock is built to look like a bench timer: a brass-edged case, a dark
+ * glass window, seven-segment LEDs drawn on a canvas. It hangs under the HUD
+ * and the stage is fitted below it, so it never covers the bench.
+ * ======================================================================== */
+.phase-clock {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--hud-bottom, 64px) + 6px);
+  transform: translateX(-50%);
+  display: flex; align-items: stretch; gap: 10px;
+  padding: 5px 10px 5px 8px;
+  background: linear-gradient(180deg, #30251c, #140f0b);
+  border: 1px solid rgba(214, 170, 92, 0.55);
+  border-radius: 11px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 236, 200, 0.16);
+  z-index: 6;
+  pointer-events: none;
+  transition: border-color 200ms, box-shadow 200ms;
+}
+.phase-clock[hidden] { display: none; }
+.pc-side { display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+.pc-right { min-width: 104px; }
+.pc-label { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-faint); }
+.pc-pips { display: flex; gap: 4px; }
+.pc-pips i {
+  display: block; width: 13px; height: 6px; border-radius: 2px;
+  background: rgba(255, 255, 255, 0.10); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.pc-pips i.done { background: #62ff8c; box-shadow: 0 0 8px rgba(98, 255, 140, 0.75); }
+.pc-pips i.now { background: #ffb13b; box-shadow: 0 0 8px rgba(255, 177, 59, 0.75); }
+.pc-glass {
+  display: flex; align-items: center;
+  padding: 2px 6px;
+  background: radial-gradient(120% 90% at 30% 20%, #1a0f0c, #050303);
+  border-radius: 6px;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+.pc-digits { display: block; width: 104px; height: 40px; }
+.pc-name {
+  font-size: 12px; font-weight: 650; color: var(--text);
+  white-space: nowrap; max-width: 190px; overflow: hidden; text-overflow: ellipsis;
+}
+.pc-try { font-size: 11px; color: var(--text-dim); font-family: var(--mono); white-space: nowrap; }
+.phase-clock.danger {
+  border-color: rgba(255, 84, 60, 0.85);
+  box-shadow: 0 0 26px rgba(255, 50, 30, 0.38), 0 8px 26px rgba(0, 0, 0, 0.55);
+}
+.phase-clock.critical .pc-glass { animation: pc-blink 0.5s steps(2, start) infinite; }
+.phase-clock.is-timeout .pc-glass { animation: pc-blink 0.22s steps(2, start) infinite; }
+.phase-clock.is-clear, .phase-clock.is-done { border-color: rgba(98, 255, 140, 0.65); }
+@keyframes pc-blink { to { opacity: 0.45; } }
+
+.phase-banner {
+  position: absolute;
+  left: calc(50% - var(--inset-right, 0px) / 2);
+  top: calc((var(--inset-top, 0px) + 100% - var(--inset-bottom, 0px)) / 2);
+  transform: translate(-50%, -50%) scale(0.94);
+  min-width: min(360px, 84vw);
+  max-width: 90vw;
+  padding: 14px 28px 16px;
+  text-align: center;
+  background: rgba(16, 11, 8, 0.84);
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 180ms, transform 240ms cubic-bezier(.2, 1.4, .4, 1);
+  pointer-events: none;
+  z-index: 7;
+}
+.phase-banner.in { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.phase-banner[hidden] { display: none; }
+.pb-kicker { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent-warm); }
+.pb-title { font-size: 32px; font-weight: 800; line-height: 1.1; margin-top: 4px; }
+.pb-sub { font-size: 13px; color: var(--text-dim); margin-top: 6px; }
+.phase-banner.good { border-color: rgba(98, 255, 140, 0.5); }
+.phase-banner.good .pb-kicker { color: #8dffad; }
+.phase-banner.bad { border-color: rgba(255, 90, 70, 0.65); background: rgba(42, 8, 6, 0.86); }
+.phase-banner.bad .pb-kicker { color: #ff8a78; }
+.phase-banner.bad .pb-title { color: #ffd9d2; }
+
+.phase-start {
+  position: absolute;
+  left: calc(50% - var(--inset-right, 0px) / 2);
+  /* Over the tray, which is locked until the clock starts anyway -- so the
+   * whole bench stays in view while the player studies it. */
+  bottom: max(8px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(620px, calc(100vw - 16px));
+  display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center;
+  padding: 12px 14px;
+  background: rgba(20, 14, 10, 0.93);
+  border: 1px solid rgba(214, 170, 92, 0.5);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  z-index: 8;
+}
+.phase-start[hidden] { display: none; }
+.ps-head { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; }
+.ps-kicker { font-size: 12px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-warm); }
+.ps-rule { font-size: 12px; color: var(--text-dim); line-height: 1.35; }
+.ps-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ps-list li {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line);
+  font-size: 12px;
+}
+.ps-n { font-family: var(--mono); font-weight: 700; color: var(--accent); }
+.ps-time { font-family: var(--mono); color: #ff8d7a; }
+.ps-go { display: flex; align-items: center; justify-content: center; gap: 10px; white-space: nowrap; min-width: 0; }
+.ps-go kbd {
+  font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.boss-chip.timed-chip { background: #ff8d6b; box-shadow: 0 0 12px rgba(255, 120, 90, 0.45); }
+.boss-chip.impossible-chip { background: #d9c7ff; color: #16092e; box-shadow: 0 0 14px rgba(190, 160, 255, 0.55); }
+.level-tag.timed { color: #ff9f86; }
+.boss-flag.impossible { color: #cdb8ff; }
+
+/* ===========================================================================
  * Form rows (multiplayer and editor sheets)
  * ======================================================================== */
 .prop-row {
@@ -568,6 +693,19 @@ select:focus, .text-input:focus, textarea:focus { outline: 2px solid var(--accen
   .level-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
   .status-strip { padding: 5px 12px; }
   .strip-bar { width: 92px; }
+
+  .phase-clock { gap: 7px; padding: 3px 8px 3px 6px; top: calc(var(--hud-bottom, 96px) + 4px); }
+  .pc-digits { width: 84px; height: 32px; }
+  .pc-right { min-width: 0; }
+  .pc-name { max-width: 110px; font-size: 11px; }
+  .pc-try { font-size: 10px; }
+  .pb-title { font-size: 24px; }
+  /* One chip is all a phone title has room for; the first says the most. */
+  .level-name .boss-chip + .boss-chip { display: none; }
+  .phase-banner { padding: 12px 18px 14px; }
+  .phase-start { grid-template-columns: 1fr; padding: 10px 12px; gap: 7px; }
+  .ps-rule { display: none; }
+  .ps-go kbd { display: none; }
 }
 
 /* Most phones in portrait: five buttons and the score will not all fit at
@@ -656,6 +794,14 @@ select:focus, .text-input:focus, textarea:focus { outline: 2px solid var(--accen
   .screen-title .big-btn { flex: 1 1 40%; width: auto; padding: 9px 12px; }
   .win-stars .star { font-size: 28px; }
   .toasts { left: calc(50% - var(--inset-right, 0px) / 2); }
+
+  /* Height is scarce: the clock shrinks to a slim bar. */
+  .phase-clock { padding: 2px 8px 2px 6px; gap: 7px; left: calc(50% - var(--inset-right, 0px) / 2); }
+  .pc-label { display: none; }
+  .pc-digits { width: 76px; height: 26px; }
+  .pc-try { display: none; }
+  .phase-start { bottom: 10px; grid-template-columns: 1fr auto; }
+  .ps-rule { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
