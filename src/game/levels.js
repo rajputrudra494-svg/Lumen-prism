@@ -494,7 +494,7 @@
     var fanOrigin = A.beamEnd([prism], [em], { depth: 2, pick: 'brightest' }).a;
     var mid = A.bandCrossing([prism], [em], 540, 'y', 150);
     var fold = { type: 'mirror', x: mid.x, y: mid.y, length: 320, locked: true,
-                 angle: A.aimAngle(fanOrigin, mid, { x: 430, y: 800 }) };
+                 angle: A.aimAngle(fanOrigin, mid, { x: 1080, y: 860 }) };
 
     var TARGET_Y = 780;
     var redP  = A.bandCrossing([prism, fold], [em], 664, 'y', TARGET_Y);
@@ -715,7 +715,7 @@
 
   /* --- Level 25: refraction through a water wedge. ------------------------ */
   (function () {
-    var wedge = { type: 'glass', x: 820, y: 420, angle: rad(22),
+    var wedge = { type: 'glass', x: 820, y: 420, angle: rad(30),
                   w: 300, h: 420, material: 'water', disperse: false };
     var em = E(140, 330, 0, 'cyan', { intensity: 1.4 });
     var out = A.beamEnd([wedge], [em], { depth: 2, inside: false, pick: 'brightest' });
@@ -2904,7 +2904,7 @@
     var base = [prism, fold];
     var picks = [
       { nm: 664, want: 640, to: { x: 1480, y: 130 } },
-      { nm: 540, want: 540, to: { x: 1480, y: 840 } },
+      { nm: 540, want: 540, to: { x: 900, y: 870 } },
       { nm: 416, want: 440, to: { x: 140, y: 840 } }
     ];
     var solution = [], receivers = [], all = base.slice();
@@ -2926,8 +2926,8 @@
       var d = { x: p.to.x - p.at.x, y: p.to.y - p.at.y }, L = Math.sqrt(d.x * d.x + d.y * d.y);
       var u = { x: d.x / L, y: d.y / L }, n = { x: -u.y, y: u.x };
       var c = { x: p.to.x - u.x * 110, y: p.to.y - u.y * 110 };
-      receivers.push(dark(Math.round(c.x + n.x * 48), Math.round(c.y + n.y * 48), 18));
-      receivers.push(dark(Math.round(c.x - n.x * 48), Math.round(c.y - n.y * 48), 18));
+      receivers.push(dark(Math.round(c.x + n.x * 72), Math.round(c.y + n.y * 72), 18));
+      receivers.push(dark(Math.round(c.x - n.x * 72), Math.round(c.y - n.y * 72), 18));
     });
     multi({
       id: 'imp-91', chapter: 'impossible', name: 'Spectral Lock',

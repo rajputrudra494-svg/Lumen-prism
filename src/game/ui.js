@@ -181,10 +181,29 @@
     return row;
   }
 
+  /**
+   * Wood for the interface, grown by the same code as the bench and handed to
+   * the stylesheet as data URLs -- every panel, button and menu cut from
+   * planks, without a single image file. Where canvas is unavailable the flat
+   * panel colours in the stylesheet stand in.
+   */
+  function applyWood() {
+    if (!LP.Bench || !LP.Bench.panelTexture) return;
+    try {
+      var html = document.documentElement;
+      var panel = LP.Bench.panelTexture('walnut', 420, 360, 6, 0.3, 21);
+      var button = LP.Bench.panelTexture('teak', 300, 240, 4, 0.2, 33);
+      html.style.setProperty('--wood-panel', 'url("' + panel.toDataURL('image/jpeg', 0.85) + '")');
+      html.style.setProperty('--wood-button', 'url("' + button.toDataURL('image/jpeg', 0.85) + '")');
+      html.classList.add('has-wood');
+    } catch (e) { /* no canvas here: keep the flat colours */ }
+  }
+
   /* ==========================================================================
    * UI
    * ======================================================================= */
   function create(game, root) {
+    applyWood();
     var ui = {
       game: game,
       root: root,
@@ -614,19 +633,30 @@
       ], { noClose: true });
   };
 
+  /** A glass prism throwing its rainbow toward a flagged destination. */
   function titleArtSVG() {
     return '<svg viewBox="0 0 320 120" width="100%" height="120" aria-hidden="true">' +
-      '<defs><linearGradient id="lp-beam" x1="0" y1="0" x2="1" y2="0">' +
-      '<stop offset="0" stop-color="#ffffff" stop-opacity="0.15"/>' +
-      '<stop offset="0.5" stop-color="#7ef0ff" stop-opacity="0.95"/>' +
-      '<stop offset="1" stop-color="#ff5ec4" stop-opacity="0.9"/></linearGradient></defs>' +
-      '<path d="M8 60 H120 L200 24 L200 96 L312 60" fill="none" stroke="url(#lp-beam)" ' +
-      'stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<line x1="106" y1="40" x2="134" y2="80" stroke="#dff2ff" stroke-width="4" stroke-linecap="round"/>' +
-      '<line x1="186" y1="10" x2="214" y2="38" stroke="#dff2ff" stroke-width="4" stroke-linecap="round"/>' +
-      '<line x1="186" y1="110" x2="214" y2="82" stroke="#dff2ff" stroke-width="4" stroke-linecap="round"/>' +
-      '<circle cx="312" cy="60" r="9" fill="none" stroke="#ff9ede" stroke-width="3"/>' +
-      '<circle cx="8" cy="60" r="6" fill="#7ef0ff"/></svg>';
+      '<defs>' +
+      '<linearGradient id="lp-fan" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#8b5cff"/><stop offset="0.24" stop-color="#3b8bff"/>' +
+      '<stop offset="0.44" stop-color="#38e08c"/><stop offset="0.63" stop-color="#ffe23c"/>' +
+      '<stop offset="0.8" stop-color="#ff8a2a"/><stop offset="1" stop-color="#ff3b30"/>' +
+      '</linearGradient>' +
+      '<filter id="lp-soft" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="2.4"/></filter>' +
+      '</defs>' +
+      '<path d="M10 70 L126 64" stroke="#fff3df" stroke-width="9" stroke-linecap="round" opacity="0.35" filter="url(#lp-soft)"/>' +
+      '<path d="M10 70 L126 64" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>' +
+      '<path d="M150 62 L262 20 L262 96 Z" fill="url(#lp-fan)" opacity="0.5" filter="url(#lp-soft)"/>' +
+      '<path d="M150 62 L262 30 L262 86 Z" fill="url(#lp-fan)" opacity="0.78"/>' +
+      '<path d="M140 28 L168 82 L112 82 Z" fill="rgba(255,255,255,0.07)" stroke="#ffffff" ' +
+      'stroke-width="2" stroke-linejoin="round"/>' +
+      '<path d="M140 28 L140 64 M168 82 L140 64 M112 82 L140 64" stroke="#ffffff" stroke-width="0.8" opacity="0.35"/>' +
+      '<circle cx="288" cy="66" r="18" fill="rgba(255,255,255,0.08)" stroke="#ffffff" stroke-width="1.6"/>' +
+      '<circle cx="288" cy="66" r="12" fill="none" stroke="#ffffff" stroke-width="2.2"/>' +
+      '<circle cx="288" cy="66" r="6" fill="none" stroke="#ffffff" stroke-width="1.6"/>' +
+      '<line x1="288" y1="62" x2="288" y2="12" stroke="#eef1f5" stroke-width="2" stroke-linecap="round"/>' +
+      '<path d="M288 13 C297 9 305 17 315 15 L307 25 C299 26 295 22 288 27 Z" fill="#e0382a"/>' +
+      '</svg>';
   }
 
   /* ---- Level select ------------------------------------------------------ */

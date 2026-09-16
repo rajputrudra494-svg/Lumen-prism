@@ -22,6 +22,11 @@
  * which is how a real table looks anyway: many boards cut from similar wood.
  * Seams, end joints, knots and the varnish sheen are drawn on top.
  *
+ * THE REST OF THE ROOM
+ * The bench stands on a plank floor, and every panel, button and menu around
+ * it is cut from the same wood (see `floorTile` and `panelTexture`) -- built
+ * the same way, from one grown board laid out as planks, but tileable.
+ *
  * DUST
  * A beam in clear air is invisible from the side; what you actually see is
  * light scattering off particles in its path. The motes here drift slowly and
@@ -280,6 +285,103 @@
   function clearCache() { cache = {}; }
 
   /* ==========================================================================
+   * WOOD FOR THE REST OF THE ROOM
+   * ======================================================================= */
+
+  /**
+   * A tileable run of planks, `w` x `h` texels. Planks run the full width of
+   * the tile; a board that runs off the right-hand edge is drawn again from the
+   * left, so the tile repeats without a seam -- tiling only ever adds the end
+   * joints a plank floor is made of anyway.
+   */
+  function floorTile(speciesKey, w, h, planks, seed) {
+    var key = 'floor|' + speciesKey + '|' + w + '|' + h + '|' + planks + '|' + (seed || 0);
+    if (cache[key]) return cache[key];
+    var spec = SPECIES[speciesKey] || SPECIES.walnut;
+    var rng = M.rng(((seed || 3) * 97 + 5) | 0);
+    var c = makeCanvas(w, h), ctx = c.getContext('2d');
+    var ph = h / planks;
+    var boards = [grainBoard(spec, Math.round(w * 0.8), Math.ceil(ph), 1, (seed || 3) + 101),
+                  grainBoard(spec, Math.round(w * 0.8), Math.ceil(ph), 1, (seed || 3) + 211)];
+
+    function plank(board, sx, len, x, y0, stain, stainCol) {
+      ctx.drawImage(board, sx, 0, len, board.height, x, y0, len, ph + 1);
+      ctx.globalAlpha = stain;
+      ctx.fillStyle = stainCol;
+      ctx.fillRect(x, y0, len, ph);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(x + len - 1.5, y0, 2.2, ph);
+      ctx.fillStyle = 'rgba(255,236,205,0.05)';
+      ctx.fillRect(x + len + 0.7, y0, 1.4, ph);
+    }
+
+    for (var p = 0; p < planks; p++) {
+      var y0 = p * ph, x = -rng() * w * 0.4;
+      while (x < w) {
+        var board = boards[(rng() * boards.length) | 0];
+        var len = Math.min(board.width, w * (0.3 + rng() * 0.45));
+        var sx = rng() * Math.max(0, board.width - len);
+        var stain = 0.04 + rng() * 0.14, col = rng() < 0.5 ? spec.dark : spec.light;
+        plank(board, sx, len, x, y0, stain, col);
+        if (x < 0) plank(board, sx, len, x + w, y0, stain, col);
+        if (x + len > w) plank(board, sx, len, x - w, y0, stain, col);
+        x += len;
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.62)';
+      ctx.fillRect(0, y0, w, 2.4);
+      ctx.fillStyle = 'rgba(255,238,210,0.06)';
+      ctx.fillRect(0, y0 + 2.4, w, 1.6);
+    }
+    cache[key] = c;
+    return c;
+  }
+
+  /**
+   * Wood for the interface: a small plank tile, darkened so light text on it
+   * stays readable. Returned as a canvas; the UI turns it into a data URL.
+   */
+  function panelTexture(speciesKey, w, h, planks, darken, seed) {
+    var key = 'panel|' + speciesKey + '|' + w + '|' + h + '|' + planks + '|' + darken + '|' + (seed || 0);
+    if (cache[key]) return cache[key];
+    var tile = floorTile(speciesKey, w, h, planks, seed || 9);
+    var c = makeCanvas(w, h), ctx = c.getContext('2d');
+    ctx.drawImage(tile, 0, 0);
+    ctx.fillStyle = 'rgba(8,5,3,' + M.clamp(darken, 0, 1) + ')';
+    ctx.fillRect(0, 0, w, h);
+    cache[key] = c;
+    return c;
+  }
+
+  /**
+   * Grain for light in the air: tileable specks and short fibres, alpha only.
+   * Punched out of the glow buffer it gives beams the textured, slightly
+   * powdery look of light seen through haze on film, instead of flat colour.
+   */
+  function grain(size, seed) {
+    var n = Math.max(12, Math.round(size / 12) * 12);
+    var key = 'grain|' + n + '|' + (seed || 0);
+    if (cache[key]) return cache[key];
+    var c = makeCanvas(n, n), ctx = c.getContext('2d');
+    var img = ctx.createImageData(n, n), d = img.data;
+    var sd = seed || 17;
+    for (var y = 0; y < n; y++) {
+      for (var x = 0; x < n; x++) {
+        var speck = hash2(x, y, sd);
+        var fibre = hash2((x / 6) | 0, y, sd + 3);          /* short horizontal fibres */
+        var blot = hash2((x / 4) | 0, (y / 4) | 0, sd + 7);  /* coarse mottling */
+        var a = Math.max(0, speck - 0.5) * 1.3 + Math.max(0, fibre - 0.72) * 1.6 + (blot - 0.5) * 0.18;
+        a = a < 0 ? 0 : (a > 1 ? 1 : a);
+        var o = (y * n + x) * 4;
+        d[o] = 0; d[o + 1] = 0; d[o + 2] = 0; d[o + 3] = Math.round(a * 255);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    cache[key] = c;
+    return c;
+  }
+
+  /* ==========================================================================
    * DUST
    * ======================================================================= */
   function createDust(count, seed) {
@@ -313,6 +415,9 @@
   LP.Bench = {
     SPECIES: SPECIES,
     table: table,
+    floorTile: floorTile,
+    panelTexture: panelTexture,
+    grain: grain,
     clearCache: clearCache,
     createDust: createDust,
     stepDust: stepDust,

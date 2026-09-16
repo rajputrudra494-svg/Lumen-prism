@@ -5,6 +5,7 @@
  *
  * The scene is an optical bench in a dim room, built in five passes:
  *
+ *   0. ROOM      a plank floor, and the table's own mitred wooden frame
  *   1. TABLE     the wooden tabletop, fully lit, exactly as it would look
  *                under a bright work light (see bench.js)
  *   2. LIGHTING  a low-resolution light map -- faint room ambient, a hanging
@@ -13,11 +14,14 @@
  *                only as bright as the light reaching it, so a beam visibly
  *                lights up the boards it runs across.
  *   3. HARDWARE  mounts, glass and metal, each casting a soft shadow
- *   4. AIR       the beams themselves, drawn additively and blurred: a crisp
- *                core, a halo, and a scattering shaft that widens with
- *                distance, plus dust motes that glint only where light passes
- *                through them
- *   5. OVERLAY   lamps, sensors, particles and the gizmos
+ *   4. AIR       the beams themselves, drawn additively and blurred: broad
+ *                bands of scattered light that widen as they travel, a crisp
+ *                core, continuous rainbows filled in between the colours of a
+ *                dispersed beam, film grain, and dust motes that glint only
+ *                where light passes through them
+ *   5. GLASS     prisms, lenses and blocks catch the light at their edges and
+ *                corners, drawn over the beams
+ *   6. OVERLAY   lamps, flagged destinations, particles and the gizmos
  *
  * Additive blending in the air pass is what makes crossing beams brighten
  * where they overlap -- the same thing the physics says happens.
@@ -46,6 +50,10 @@
   var V = LP.V, M = LP.M, S = LP.Spectrum, G = LP.Geom, E = LP.Elements;
 
   var WORLD_W = 1600, WORLD_H = 900;
+
+  /* The wooden frame round the tabletop, in world units. The stage is fitted
+   * with it, so the frame is never cut off by the edge of the screen. */
+  var FRAME = 26;
 
   /* How fast the light front advances, in world units per second. */
   var LIGHT_SPEED = 3400;
@@ -109,8 +117,9 @@
     var aw = Math.max(40, w - il - ir);
     var ah = Math.max(40, h - it - ib);
 
-    var flat = Math.min(aw / WORLD_W, ah / WORLD_H);
-    var turned = Math.min(aw / WORLD_H, ah / WORLD_W);
+    var PW = WORLD_W + FRAME * 2, PH = WORLD_H + FRAME * 2;
+    var flat = Math.min(aw / PW, ah / PH);
+    var turned = Math.min(aw / PH, ah / PW);
     /* Demand a real gain before rotating, so a near-square window does not
      * flip back and forth while it is being resized. */
     var rot = !!allowRotate && turned > flat * 1.15;
@@ -243,8 +252,6 @@
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = '#070504';
-    ctx.fillRect(0, 0, r.view.w, r.view.h);
 
     var sx = 0, sy = 0;
     if (r.shake > 0.01) {
@@ -252,12 +259,8 @@
       sy = (Math.random() - 0.5) * r.shake;
     }
 
-    /* 1. The bare table. */
-    applyWorldTransform(ctx, r);
-    ctx.save();
-    ctx.translate(sx, sy);
-    drawTable(r, ctx, theme);
-    ctx.restore();
+    /* 0 + 1. The room, the frame and the bare table. */
+    drawBackdrop(r, ctx, theme, sx, sy);
 
     /* 2. Light it. */
     renderLightMap(r, state);
@@ -280,6 +283,7 @@
     /* 5. Lamps, sensors and the overlay. */
     applyWorldTransform(ctx, r);
     ctx.save();
+    drawGlassLight(r, ctx, scene);
     drawElements(r, ctx, theme, scene, state, true);
     drawParticles(r, ctx);
     drawInstallFx(r, ctx, scene);
@@ -289,6 +293,137 @@
   }
 
   var NO_FX = { power: 1, alarm: 0 };
+
+  /* --------------------------------------------------------------------------
+   * The room: a plank floor under the table, and the table's wooden frame.
+   * ------------------------------------------------------------------------ */
+  function drawRoom(r, ctx) {
+    var v = r.view;
+    ctx.fillStyle = '#0a0705';
+    ctx.fillRect(0, 0, v.w, v.h);
+    if (!LP.Bench || !LP.Bench.floorTile || r.quality === 'low') return;
+    var tile = LP.Bench.floorTile('walnut', 1200, 960, 10, 5);
+    if (!r._floor || r._floor.tile !== tile) {
+      r._floor = { tile: tile, pattern: ctx.createPattern(tile, 'repeat'), key: null };
+    }
+    var pat = r._floor.pattern;
+    var key = v.scale + ',' + v.ox + ',' + v.oy + ',' + v.rot;
+    if (r._floor.key !== key && pat.setTransform && typeof DOMMatrix !== 'undefined') {
+      /* Floorboards a little broader than the table's, turning with the stage. */
+      var k = v.scale * 1.2;
+      pat.setTransform(v.rot ? new DOMMatrix([0, k, -k, 0, v.ox, v.oy])
+                             : new DOMMatrix([k, 0, 0, k, v.ox, v.oy]));
+      r._floor.key = key;
+    }
+    ctx.fillStyle = pat;
+    ctx.fillRect(0, 0, v.w, v.h);
+    /* The floor is further from the work lamp than the tabletop. */
+    ctx.fillStyle = 'rgba(5,3,2,0.5)';
+    ctx.fillRect(0, 0, v.w, v.h);
+  }
+
+  /**
+   * The room, the frame and the tabletop do not change while a level is being
+   * played, and painting them -- a full-screen floor, a large soft shadow, the
+   * table texture -- is most of a frame's fixed cost. Paint them once per
+   * view, chapter and quality into a cached canvas, and copy it each frame.
+   */
+  function drawBackdrop(r, ctx, theme, sx, sy) {
+    var v = r.view;
+    var key = [v.w, v.h, v.scale, v.ox, v.oy, v.rot, theme.wood || 'oak', r.quality].join('|');
+    if (typeof document === 'undefined') return;
+    if (!r._backdrop) r._backdrop = document.createElement('canvas');
+    var bd = r._backdrop;
+    if (r._backdropKey !== key) {
+      if (bd.width !== v.w || bd.height !== v.h) { bd.width = v.w; bd.height = v.h; }
+      var bc = bd.getContext('2d');
+      bc.setTransform(1, 0, 0, 1, 0, 0);
+      bc.globalCompositeOperation = 'source-over';
+      bc.clearRect(0, 0, v.w, v.h);
+      r._floor = null;
+      drawRoom(r, bc);
+      setWorld(bc, v, 1);
+      drawFrame(r, bc, theme);
+      drawTable(r, bc, theme);
+      r._backdropKey = key;
+    }
+    /* A screen shake moves the whole bench, in screen pixels. */
+    var ox = 0, oy = 0;
+    if (sx || sy) {
+      if (v.rot) { ox = -sy * v.scale; oy = sx * v.scale; }
+      else { ox = sx * v.scale; oy = sy * v.scale; }
+      ctx.fillStyle = '#0a0705';
+      ctx.fillRect(0, 0, v.w, v.h);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(bd, ox, oy);
+  }
+
+  /** Four boards round the tabletop, grain running along each, mitred at the corners. */
+  function drawFrame(r, ctx, theme) {
+    var spec = LP.Bench && LP.Bench.SPECIES[theme.wood || 'oak'];
+    var dark = spec ? spec.dark : '#3a2a1c';
+    var F = FRAME, W = WORLD_W, H = WORLD_H;
+    ctx.save();
+    shadowOn(ctx, r, 0.85, 3.4);
+    ctx.fillStyle = shade(dark, 0.8);
+    ctx.fillRect(-F, -F, W + F * 2, H + F * 2);
+    shadowOff(ctx);
+
+    var tex = LP.Bench ? LP.Bench.table(theme.wood || 'oak', r.quality, 0) : null;
+    var sides = [
+      [[-F, -F], [W + F, -F], [W, 0], [0, 0]],
+      [[W + F, -F], [W + F, H + F], [W, H], [W, 0]],
+      [[W + F, H + F], [-F, H + F], [0, H], [W, H]],
+      [[-F, H + F], [-F, -F], [0, 0], [0, H]]
+    ];
+    var light = ['rgba(255,236,205,0.10)', 'rgba(0,0,0,0.24)', 'rgba(0,0,0,0.34)', 'rgba(255,236,205,0.05)'];
+    for (var i = 0; i < 4; i++) {
+      var q = sides[i];
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(q[0][0], q[0][1]);
+      for (var j = 1; j < 4; j++) ctx.lineTo(q[j][0], q[j][1]);
+      ctx.closePath();
+      ctx.clip();
+      if (tex) {
+        var strip = tex.height * 0.1;
+        if (i % 2 === 0) {
+          ctx.drawImage(tex, 0, i === 0 ? 0 : tex.height - strip, tex.width, strip,
+                        -F, i === 0 ? -F : H, W + F * 2, F);
+        } else {
+          ctx.translate(i === 1 ? W + F : 0, -F);
+          ctx.rotate(Math.PI / 2);
+          ctx.drawImage(tex, 0, 0, tex.width, strip, 0, 0, H + F * 2, F);
+        }
+      }
+      ctx.restore();
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(q[0][0], q[0][1]);
+      for (var j2 = 1; j2 < 4; j2++) ctx.lineTo(q[j2][0], q[j2][1]);
+      ctx.closePath();
+      ctx.fillStyle = light[i];
+      ctx.fill();
+      ctx.restore();
+    }
+    /* Mitre joints, the outer arris, and the groove where the top meets the frame. */
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(-F, -F); ctx.lineTo(0, 0);
+    ctx.moveTo(W + F, -F); ctx.lineTo(W, 0);
+    ctx.moveTo(W + F, H + F); ctx.lineTo(W, H);
+    ctx.moveTo(-F, H + F); ctx.lineTo(0, H);
+    ctx.stroke();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(255,236,205,0.14)';
+    ctx.strokeRect(-F + 0.8, -F + 0.8, W + F * 2 - 1.6, H + F * 2 - 1.6);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.62)';
+    ctx.strokeRect(-1.5, -1.5, W + 3, H + 3);
+    ctx.restore();
+  }
 
   /* --------------------------------------------------------------------------
    * The tabletop.
@@ -466,7 +601,7 @@
 
   /* A beam's scattering shaft widens as it travels -- real light is never
    * perfectly collimated. Capped so a long path does not flood the table. */
-  function shaftHalf(t) { return Math.min(46, 4.5 + t * 0.0105); }
+  function shaftHalf(t) { return Math.min(54, 6.5 + t * 0.013); }
 
   function renderLightMap(r, state) {
     var scene = state.scene, theme = state.theme || {};
@@ -666,6 +801,7 @@
     var gc = r.glowCtx;
     var gs = r.glowScale;
     gc.setTransform(1, 0, 0, 1, 0, 0);
+    gc.globalCompositeOperation = 'source-over';
     gc.clearRect(0, 0, r.glow.width, r.glow.height);
     setWorld(gc, r.view, gs);
     /* Floor the on-screen width, so a beam on a small phone stage still reads
@@ -673,6 +809,7 @@
     var minW = worldPerCss(r);
     gc.globalCompositeOperation = 'lighter';
     gc.lineCap = 'round';
+    gc.lineJoin = 'round';
 
     var front = r.lightFront;
     var segs = res.segments;
@@ -682,38 +819,45 @@
      * scattering more light out of it -- which is exactly why those levels
      * cost more light. */
     var haze = M.clamp(0.8 + (scene.fog || 0) * 800, 0.8, 2.4);
-    var shafts = r.quality !== 'low';
+    var rich = r.quality !== 'low';
     var hotspots = 0;
 
+    /* SPECTRA. A dispersed beam is not nine thin rays: fill between each pair
+     * of neighbouring colours, so a prism throws one continuous rainbow. */
+    if (rich) drawSpectralFans(gc, segs, front, haze);
+
     for (var pass = 0; pass < 4; pass++) {
-      if (pass === 0 && !shafts) continue;
+      if (pass === 0 && !rich) continue;
       for (var i = 0; i < segs.length; i++) {
         var s = segs[i];
         var v = visiblePart(s, front);
         if (!v || v.inten < 0.005) continue;
         var col = S.colClamp(S.colNormalize(s.c));
+        var ev = expose(v.inten);
 
         if (pass === 0) {
-          /* Scattering shaft: a quad that widens along the path. */
+          /* A broad band of scattered light that widens as it travels, with a
+           * brighter heart: two nested soft quads. */
           var dx = v.b.x - v.a.x, dy = v.b.y - v.a.y;
           var len = Math.sqrt(dx * dx + dy * dy);
           if (len < 0.5) continue;
           var nx = -dy / len, ny = dx / len;
           var h0 = shaftHalf(s.t0), h1 = shaftHalf(v.tEnd);
-          gc.fillStyle = S.toCSS(col, expose(v.inten) * 0.14 * haze / (1 + (h0 + h1) * 0.02));
-          gc.beginPath();
-          gc.moveTo(v.a.x + nx * h0, v.a.y + ny * h0);
-          gc.lineTo(v.b.x + nx * h1, v.b.y + ny * h1);
-          gc.lineTo(v.b.x - nx * h1, v.b.y - ny * h1);
-          gc.lineTo(v.a.x - nx * h0, v.a.y - ny * h0);
-          gc.closePath();
+          var a = ev * 0.3 * haze / (1 + (h0 + h1) * 0.009);
+          band(gc, v.a, v.b, nx, ny, h0, h1);
+          gc.fillStyle = S.toCSS(col, a * 0.45);
+          gc.fill();
+          band(gc, v.a, v.b, nx, ny, h0 * 0.5, h1 * 0.5);
+          gc.fillStyle = S.toCSS(col, a * 0.6);
+          gc.fill();
+          band(gc, v.a, v.b, nx, ny, h0 * 0.22, h1 * 0.22);
+          gc.fillStyle = S.toCSS(col, a);
           gc.fill();
         } else if (pass === 1 || pass === 2) {
           var wide = pass === 1;
-          var ev = expose(v.inten);
-          gc.strokeStyle = S.toCSS(col, wide ? ev * 0.26 : Math.min(1, 0.15 + ev * 0.95));
-          gc.lineWidth = wide ? Math.max(6 + ev * 9, 6 * minW)
-                              : Math.max(1.4 + ev * 2.2, 2 * minW);
+          gc.strokeStyle = S.toCSS(col, wide ? ev * 0.24 : Math.min(1, 0.1 + ev * 0.75));
+          gc.lineWidth = wide ? Math.max(8 + ev * 12, 6 * minW)
+                              : Math.max(1.2 + ev * 1.6, 1.6 * minW);
           if (r.colorblind && !wide) gc.setLineDash(S.colorSignature(s.c).dash);
           else gc.setLineDash([]);
           gc.beginPath();
@@ -724,11 +868,9 @@
           /* Where light strikes a surface, some of it scatters back at you. */
           if (!v.whole || onEdge(v.b) || v.inten < 0.05 || hotspots > 70) continue;
           hotspots++;
-          var eh = expose(v.inten);
-          var hr = 8 + eh * 16;
+          var hr = 8 + ev * 16;
           var hg = gc.createRadialGradient(v.b.x, v.b.y, 0, v.b.x, v.b.y, hr);
-          hg.addColorStop(0, S.toCSS(S.colAdd(S.colScale(col, 0.6), { r: 0.4, g: 0.4, b: 0.4 }),
-                                     eh * 0.85));
+          hg.addColorStop(0, S.toCSS(S.colAdd(S.colScale(col, 0.6), { r: 0.4, g: 0.4, b: 0.4 }), ev * 0.85));
           hg.addColorStop(1, S.toCSS(col, 0));
           gc.fillStyle = hg;
           gc.beginPath();
@@ -739,12 +881,25 @@
     }
     gc.setLineDash([]);
 
+    /* FILM GRAIN. Punch fine specks and fibres out of the light, so beams read
+     * as textured haze -- light seen through dust on film -- not flat colour. */
+    if (rich && LP.Bench && LP.Bench.grain) {
+      if (!r._grain) r._grain = gc.createPattern(LP.Bench.grain(240, 17), 'repeat');
+      gc.setTransform(1, 0, 0, 1, 0, 0);
+      gc.globalCompositeOperation = 'destination-out';
+      gc.globalAlpha = 0.5;
+      gc.fillStyle = r._grain;
+      gc.fillRect(0, 0, r.glow.width, r.glow.height);
+      gc.globalAlpha = 1;
+      gc.globalCompositeOperation = 'source-over';
+    }
+
     /* Composite the air back, blurred, additively. */
     var ctx = r.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = power;
-    if (r.quality !== 'low' && supportsFilter(ctx)) {
+    if (rich && supportsFilter(ctx)) {
       ctx.filter = 'blur(' + (r.quality === 'high' ? 6 : 3) + 'px)';
       ctx.drawImage(r.glow, 0, 0, r.view.w, r.view.h);
       ctx.filter = 'none';
@@ -752,6 +907,69 @@
     ctx.drawImage(r.glow, 0, 0, r.view.w, r.view.h);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** A quad along a->b, `h0` wide at a and `h1` wide at b, across normal (nx, ny). */
+  function band(gc, a, b, nx, ny, h0, h1) {
+    gc.beginPath();
+    gc.moveTo(a.x + nx * h0, a.y + ny * h0);
+    gc.lineTo(b.x + nx * h1, b.y + ny * h1);
+    gc.lineTo(b.x - nx * h1, b.y - ny * h1);
+    gc.lineTo(a.x - nx * h0, a.y - ny * h0);
+    gc.closePath();
+  }
+
+  /**
+   * Continuous rainbows. The tracer splits a white ray into nine monochromatic
+   * bands, and each travels on its own; drawn alone they look like nine thin
+   * rays. Pair every band with its nearest neighbour one colour up -- same
+   * element, same bounce, starting close together, heading the same way --
+   * and fill the sheet of light between them.
+   */
+  function drawSpectralFans(gc, segs, front, haze) {
+    var groups = {}, count = 0, key;
+    for (var i = 0; i < segs.length && count < 1200; i++) {
+      var s = segs[i];
+      if (s.wl === null || s.inside) continue;
+      var v = visiblePart(s, front);
+      if (!v || v.inten < 0.003) continue;
+      var dx = v.b.x - v.a.x, dy = v.b.y - v.a.y;
+      var len = Math.sqrt(dx * dx + dy * dy);
+      if (len < 3) continue;
+      key = s.source + '|' + s.depth + '|' + s.via;
+      (groups[key] || (groups[key] = [])).push({ s: s, v: v, len: len, ux: dx / len, uy: dy / len });
+      count++;
+    }
+    for (key in groups) {
+      if (!Object.prototype.hasOwnProperty.call(groups, key)) continue;
+      var g = groups[key];
+      if (g.length < 2) continue;
+      g.sort(function (p, q) { return p.s.wl - q.s.wl; });
+      for (var a = 0; a < g.length; a++) {
+        var A = g[a], B = null, bestD = Infinity;
+        for (var b = a + 1; b < g.length; b++) {
+          var C = g[b], dnm = C.s.wl - A.s.wl;
+          if (dnm < 4) continue;               /* the same colour, from another ray */
+          if (dnm > 48) break;                 /* not a neighbour */
+          var d = V.dist(A.v.a, C.v.a);
+          if (d < bestD) { bestD = d; B = C; }
+        }
+        if (!B) continue;
+        var meanLen = (A.len + B.len) / 2;
+        if (bestD > 24 + meanLen * 0.35) continue;
+        if (A.ux * B.ux + A.uy * B.uy < 0.88) continue;
+        if (V.dist(A.v.b, B.v.b) > bestD + meanLen * 0.7 + 30) continue;
+        var col = S.colClamp(S.colNormalize(S.colAdd(A.s.c, B.s.c)));
+        gc.fillStyle = S.toCSS(col, expose(A.v.inten + B.v.inten) * 0.42 * haze);
+        gc.beginPath();
+        gc.moveTo(A.v.a.x, A.v.a.y);
+        gc.lineTo(A.v.b.x, A.v.b.y);
+        gc.lineTo(B.v.b.x, B.v.b.y);
+        gc.lineTo(B.v.a.x, B.v.a.y);
+        gc.closePath();
+        gc.fill();
+      }
+    }
   }
 
   /**
@@ -1234,101 +1452,188 @@
   function drawDielectric(r, ctx, el) {
     var pts = el._prims[0].pts;
     var tint = S.fromHex(GLASS_TINT[el.material] || GLASS_TINT.crown);
-    var b = el._bbox;
+    var c = { x: 0, y: 0 }, i;
+    for (i = 0; i < pts.length; i++) { c.x += pts[i].x; c.y += pts[i].y; }
+    c.x /= pts.length; c.y /= pts.length;
+    var reach = 1;
+    for (i = 0; i < pts.length; i++) reach = Math.max(reach, V.dist(c, pts[i]));
 
-    /* Glass lets most light through, so its shadow is faint. */
+    /* Clear glass throws only the faintest shadow. */
     ctx.save();
-    shadowOn(ctx, r, 0.3);
+    shadowOn(ctx, r, 0.2);
     polyPath(ctx, pts);
-    ctx.fillStyle = 'rgba(20,26,30,0.10)';
+    ctx.fillStyle = 'rgba(12,16,20,0.05)';
     ctx.fill();
     shadowOff(ctx);
     ctx.restore();
 
+    /* The body: all but invisible in the middle, denser toward the faces --
+     * the way a thick edge of real glass darkens and picks up colour. */
     polyPath(ctx, pts);
-    var g = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
-    g.addColorStop(0, S.toCSS(tint, 0.26));
-    g.addColorStop(0.5, S.toCSS(tint, 0.07));
-    g.addColorStop(1, S.toCSS(tint, 0.20));
+    var g = ctx.createRadialGradient(c.x, c.y, reach * 0.08, c.x, c.y, reach * 1.02);
+    g.addColorStop(0, S.toCSS(tint, 0.02));
+    g.addColorStop(0.65, S.toCSS(tint, 0.05));
+    g.addColorStop(1, S.toCSS(tint, 0.22));
     ctx.fillStyle = g;
     ctx.fill();
 
-    /* Internal reflections: the faces seen again, just inside. */
-    var cx = 0, cy = 0;
-    for (var i = 0; i < pts.length; i++) { cx += pts[i].x; cy += pts[i].y; }
-    cx /= pts.length; cy /= pts.length;
+    /* Facets, like cut crystal: faint lines from every corner to the heart. */
+    if (pts.length <= 8) {
+      ctx.beginPath();
+      for (i = 0; i < pts.length; i++) { ctx.moveTo(c.x, c.y); ctx.lineTo(pts[i].x, pts[i].y); }
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.stroke();
+    }
+
+    /* The faces seen again from inside. */
+    scaledPath(ctx, pts, c, 0.8);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.stroke();
+
+    /* A chromatic fringe: red just outside the edge, blue just inside. */
+    scaledPath(ctx, pts, c, 1 + 3 / reach);
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = 'rgba(255,96,80,0.26)';
+    ctx.stroke();
+    scaledPath(ctx, pts, c, 1 - 3 / reach);
+    ctx.strokeStyle = 'rgba(96,150,255,0.26)';
+    ctx.stroke();
+
+    /* The polished edge. */
+    polyPath(ctx, pts);
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = el.material === 'diamond' ? 2 : 1.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+    ctx.stroke();
+  }
+
+  function scaledPath(ctx, pts, c, k) {
     ctx.beginPath();
-    for (var j = 0; j < pts.length; j++) {
-      var ix = cx + (pts[j].x - cx) * 0.84, iy = cy + (pts[j].y - cy) * 0.84;
-      if (j === 0) ctx.moveTo(ix, iy); else ctx.lineTo(ix, iy);
+    for (var i = 0; i < pts.length; i++) {
+      var x = c.x + (pts[i].x - c.x) * k, y = c.y + (pts[i].y - c.y) * k;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.closePath();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-    ctx.stroke();
+  }
 
-    /* Polished edges catch the light. */
-    polyPath(ctx, pts);
-    ctx.lineWidth = el.material === 'diamond' ? 2.4 : 1.8;
-    ctx.strokeStyle = 'rgba(255,255,255,0.82)';
-    ctx.stroke();
+  /**
+   * Glass catching the light: its edges glow and its corners sparkle. Drawn
+   * over the beams, additively, so the brightest thing about a prism in a
+   * dark room is its outline.
+   */
+  function drawGlassLight(r, ctx, scene) {
+    var pw = r.power === undefined ? 1 : r.power;
+    var any = false;
+    for (var i = 0; i < scene.elements.length; i++) {
+      var el = scene.elements[i];
+      if (el.disabled) continue;
+      if (el.type !== 'prism' && el.type !== 'lens' && el.type !== 'glass') continue;
+      if (!any) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineJoin = 'round'; any = true; }
+      var pts = el._prims[0].pts;
+      polyPath(ctx, pts);
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.035 + 0.045 * pw) + ')';
+      ctx.stroke();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.06 + 0.12 * pw) + ')';
+      ctx.stroke();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.15 + 0.4 * pw) + ')';
+      ctx.stroke();
 
-    /* One specular glint near the corner facing the lamp. */
-    var best = pts[0];
-    for (var k = 1; k < pts.length; k++) if (pts[k].x + pts[k].y < best.x + best.y) best = pts[k];
-    var gx = cx + (best.x - cx) * 0.62, gy = cy + (best.y - cy) * 0.62;
-    var sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, 9);
-    sg.addColorStop(0, 'rgba(255,255,255,0.75)');
-    sg.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = sg;
+      var corners = el.type === 'glass' ? [pts[0], pts[2]]
+                  : el.type === 'lens' ? [pts[0], pts[Math.floor(pts.length / 2)]] : pts;
+      for (var k = 0; k < corners.length && k < 4; k++) {
+        var tw = 0.5 + 0.5 * Math.sin(r.time * (1.6 + k * 0.55) + el.x * 0.013 + k * 2.3);
+        glint(ctx, corners[k].x, corners[k].y, 7 + 9 * tw, 0.12 + 0.6 * tw * pw);
+      }
+    }
+    if (any) ctx.restore();
+  }
+
+  /** A four-pointed star of light. Expects an additive composite. */
+  function glint(ctx, x, y, size, alpha) {
+    var g = ctx.createRadialGradient(x, y, 0, x, y, size);
+    g.addColorStop(0, 'rgba(255,255,255,' + alpha + ')');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(gx, gy, 9, 0, M.TAU);
+    ctx.moveTo(x, y - size);
+    ctx.quadraticCurveTo(x, y, x + size, y);
+    ctx.quadraticCurveTo(x, y, x, y + size);
+    ctx.quadraticCurveTo(x, y, x - size, y);
+    ctx.quadraticCurveTo(x, y, x, y - size);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(1, size * 0.14), 0, M.TAU);
+    ctx.fillStyle = 'rgba(255,255,255,' + Math.min(1, alpha * 1.3) + ')';
     ctx.fill();
   }
 
   function drawPortal(r, ctx, el, theme) {
-    var t = r.time;
+    var t = r.time, R0 = el.radius;
+    var pw = r.power === undefined ? 1 : r.power;
     ctx.save();
     ctx.translate(el.x, el.y);
-    var accent = theme.accent || '#8fa8ff';
 
-    /* The ring it is mounted in. */
+    /* An orb of dark glass... */
     ctx.save();
-    shadowOn(ctx, r, 0.6);
+    shadowOn(ctx, r, 0.45);
     ctx.beginPath();
-    ctx.arc(0, 0, el.radius + 5, 0, M.TAU);
-    ctx.lineWidth = 7;
-    ctx.strokeStyle = '#1a1714';
-    ctx.stroke();
+    ctx.arc(0, 0, R0, 0, M.TAU);
+    var body = ctx.createRadialGradient(-R0 * 0.3, -R0 * 0.35, R0 * 0.05, 0, 0, R0);
+    body.addColorStop(0, 'rgba(46,50,66,0.6)');
+    body.addColorStop(1, 'rgba(5,6,11,0.88)');
+    ctx.fillStyle = body;
+    ctx.fill();
     shadowOff(ctx);
     ctx.restore();
-    ctx.beginPath();
-    ctx.arc(0, 0, el.radius, 0, M.TAU);
-    ctx.fillStyle = 'rgba(6,6,10,0.7)';
-    ctx.fill();
 
     ctx.globalCompositeOperation = 'lighter';
-    var g = ctx.createRadialGradient(0, 0, el.radius * 0.1, 0, 0, el.radius * 1.5);
-    g.addColorStop(0, hexToRGBA(accent, 0.5));
-    g.addColorStop(1, hexToRGBA(accent, 0));
-    ctx.fillStyle = g;
+    /* ...ringed by its own rainbow, violet on the inside and red outside... */
+    var halo = ctx.createRadialGradient(0, 0, R0 * 0.94, 0, 0, R0 * 1.46);
+    halo.addColorStop(0.00, 'rgba(120,60,255,0)');
+    halo.addColorStop(0.12, 'rgba(130,70,255,' + (0.55 * pw) + ')');
+    halo.addColorStop(0.30, 'rgba(60,120,255,' + (0.55 * pw) + ')');
+    halo.addColorStop(0.47, 'rgba(60,230,140,' + (0.5 * pw) + ')');
+    halo.addColorStop(0.63, 'rgba(255,232,60,' + (0.55 * pw) + ')');
+    halo.addColorStop(0.80, 'rgba(255,124,40,' + (0.5 * pw) + ')');
+    halo.addColorStop(0.92, 'rgba(255,40,40,' + (0.35 * pw) + ')');
+    halo.addColorStop(1.00, 'rgba(255,0,0,0)');
+    ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.arc(0, 0, el.radius * 1.5, 0, M.TAU);
+    ctx.arc(0, 0, R0 * 1.46, 0, M.TAU);
     ctx.fill();
 
-    for (var i = 0; i < 3; i++) {
-      ctx.save();
-      ctx.rotate(t * (0.6 + i * 0.35) * (i % 2 ? -1 : 1));
-      ctx.strokeStyle = hexToRGBA(accent, 0.9 - i * 0.22);
-      ctx.lineWidth = 3 - i * 0.6;
-      ctx.beginPath();
-      ctx.arc(0, 0, el.radius - i * 5, 0.4, 0.4 + Math.PI * 1.15);
-      ctx.stroke();
-      ctx.restore();
-    }
+    /* ...with a white heart that breathes slowly. */
+    var pulse = 0.85 + 0.15 * Math.sin(t * 2.2 + el.x * 0.01);
+    var core = ctx.createRadialGradient(0, 0, 0, 0, 0, R0 * 0.72);
+    core.addColorStop(0, 'rgba(255,255,255,' + (0.95 * pulse * pw) + ')');
+    core.addColorStop(0.35, 'rgba(255,246,228,' + (0.42 * pulse * pw) + ')');
+    core.addColorStop(1, 'rgba(255,240,220,0)');
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 0.72, 0, M.TAU);
+    ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
+
+    /* The glass rim, and the room reflected in it. */
+    ctx.beginPath();
+    ctx.arc(0, 0, R0, 0, M.TAU);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 0.86, -2.5, -1.35);
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+    ctx.stroke();
+
+    /* Which way light leaves this gate. */
     ctx.rotate(el.angle + (el.exitOffset || 0));
-    brassBolt(ctx, el.radius + 8, 0, 3.6);
+    brassBolt(ctx, R0 + 10, 0, 3.4);
     ctx.restore();
   }
 
@@ -1449,148 +1754,110 @@
   function drawReceiver(r, ctx, el, theme, state) {
     var st = el._state || { lit: false, intensity: 0, dark: false };
     var req = el.require || {};
-    var wantCol = req.color && req.color !== 'any'
-      ? S.resolveColor(req.color)
-      : (req.wavelength ? S.wavelengthRGB(req.wavelength) : { r: 0.95, g: 0.9, b: 0.8 });
-    var R = el.radius;
+    if (req.dark) { drawAlarm(r, ctx, el, st); return; }
+
+    var pw = r.power === undefined ? 1 : r.power;
+    var lit = st.lit && pw > 0.5;
+    var wantCol = req.color && req.color !== 'any' ? S.resolveColor(req.color)
+                : (req.wavelength ? S.wavelengthRGB(req.wavelength) : null);
+    var gotCol = st.intensity > 0.001 ? S.colClamp(S.colNormalize(st.color)) : { r: 1, g: 0.97, b: 0.9 };
+    var R0 = el.radius;
+    var wpc = worldPerCss(r);
 
     ctx.save();
     ctx.translate(el.x, el.y);
 
-    /* Brass housing, casting its shadow. */
+    /* A glass disc standing on the bench. */
     ctx.save();
-    shadowOn(ctx, r, 0.6, 1.2);
+    shadowOn(ctx, r, 0.45, 1.1);
     ctx.beginPath();
-    ctx.arc(0, 0, R + 6, 0, M.TAU);
-    ctx.fillStyle = '#2a1d10';
+    ctx.arc(0, 0, R0 * 1.08, 0, M.TAU);
+    ctx.fillStyle = 'rgba(12,14,20,0.4)';
     ctx.fill();
     shadowOff(ctx);
     ctx.restore();
-
-    if (req.dark) {
-      /* Alarm sensor: black body, red indicator. The goal is to keep it dark. */
-      var tripped = !st.lit;
-      ctx.beginPath();
-      ctx.arc(0, 0, R + 3, 0, M.TAU);
-      ctx.fillStyle = '#121010';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = tripped ? 'rgba(255,70,60,' + (0.7 + 0.3 * Math.sin(r.time * 10)) + ')'
-                                : 'rgba(150,60,55,0.75)';
-      ctx.stroke();
-      /* Grille. */
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(0, 0, R - 2, 0, M.TAU);
-      ctx.clip();
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      for (var gy = -R; gy <= R; gy += 5) { ctx.moveTo(-R, gy); ctx.lineTo(R, gy); }
-      ctx.stroke();
-      ctx.restore();
-      if (tripped) {
-        ctx.globalCompositeOperation = 'lighter';
-        var ag = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 2.4);
-        ag.addColorStop(0, 'rgba(255,60,50,0.45)');
-        ag.addColorStop(1, 'rgba(255,60,50,0)');
-        ctx.fillStyle = ag;
-        ctx.beginPath();
-        ctx.arc(0, 0, R * 2.4, 0, M.TAU);
-        ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
-      }
-      ctx.font = '700 ' + Math.round(Math.max(15, 13 * worldPerCss(r))) + 'px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = tripped ? '#ff9a90' : 'rgba(210,150,150,0.85)';
-      textAt(ctx, r, tripped ? '!' : '∅', 0, 0);
-      ctx.restore();
-      return;
-    }
-
-    var lit = st.lit && (r.power === undefined || r.power > 0.5);
-
-    var brass = ctx.createLinearGradient(-R, -R, R, R);
-    brass.addColorStop(0, '#f4d69c');
-    brass.addColorStop(0.5, '#a67836');
-    brass.addColorStop(1, '#4a3011');
-    ctx.lineWidth = 6.5;
-    ctx.strokeStyle = brass;
+    var body = ctx.createRadialGradient(-R0 * 0.35, -R0 * 0.4, R0 * 0.05, 0, 0, R0 * 1.08);
+    body.addColorStop(0, 'rgba(255,255,255,0.22)');
+    body.addColorStop(0.55, 'rgba(160,182,210,0.08)');
+    body.addColorStop(1, 'rgba(230,240,255,0.28)');
     ctx.beginPath();
-    ctx.arc(0, 0, R + 3, 0, M.TAU);
-    ctx.stroke();
-
-    /* The photocell under a glass dome. */
-    var dome = ctx.createRadialGradient(-R * 0.3, -R * 0.35, 1, 0, 0, R);
-    if (lit) {
-      dome.addColorStop(0, S.toCSS(S.colAdd(S.colScale(wantCol, 0.5), { r: 0.5, g: 0.5, b: 0.5 }), 1));
-      dome.addColorStop(1, S.toCSS(S.colScale(wantCol, 0.55), 1));
-    } else {
-      dome.addColorStop(0, 'rgba(78,88,102,0.95)');
-      dome.addColorStop(1, '#07090c');
-    }
-    ctx.fillStyle = dome;
-    ctx.beginPath();
-    ctx.arc(0, 0, R, 0, M.TAU);
+    ctx.arc(0, 0, R0 * 1.08, 0, M.TAU);
+    ctx.fillStyle = body;
     ctx.fill();
 
     if (lit) {
       ctx.globalCompositeOperation = 'lighter';
-      var g = ctx.createRadialGradient(0, 0, R * 0.3, 0, 0, R * 2.6);
-      g.addColorStop(0, S.toCSS(wantCol, 0.6));
-      g.addColorStop(1, S.toCSS(wantCol, 0));
+      var g = ctx.createRadialGradient(0, 0, R0 * 0.2, 0, 0, R0 * 2.8);
+      g.addColorStop(0, S.toCSS(gotCol, 0.55));
+      g.addColorStop(1, S.toCSS(gotCol, 0));
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(0, 0, R * 2.6, 0, M.TAU);
+      ctx.arc(0, 0, R0 * 2.8, 0, M.TAU);
       ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
-    } else {
-      /* Unlit: show what colour it is waiting for, as a faint ring. */
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = S.toCSS(wantCol, 0.45 + 0.15 * Math.sin(r.time * 2.4));
-      ctx.beginPath();
-      ctx.arc(0, 0, R - 3, 0, M.TAU);
-      ctx.stroke();
     }
 
-    /* Progress toward the brightness it needs, engraved round the brass. */
+    /* The target rings. A colour the sensor wants tints the inner one. */
+    var ringA = lit ? 0.96 : 0.66;
+    ctx.lineWidth = 3.2;
+    ctx.strokeStyle = 'rgba(255,255,255,' + ringA + ')';
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 0.72, 0, M.TAU);
+    ctx.stroke();
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = wantCol ? S.toCSS(wantCol, lit ? 1 : 0.7 + 0.2 * Math.sin(r.time * 2.4))
+                              : 'rgba(255,255,255,' + ringA + ')';
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 0.42, 0, M.TAU);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(2, R0 * 0.1), 0, M.TAU);
+    ctx.fillStyle = 'rgba(255,255,255,' + ringA + ')';
+    ctx.fill();
+
+    /* The rim, and a glint of the room in it. */
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 1.08, 0, M.TAU);
+    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 0.9, -2.55, -1.45);
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.stroke();
+
+    /* Progress toward the brightness it needs, glowing round the rim. */
     var minI = req.minIntensity === undefined ? 0.22 : req.minIntensity;
     var frac = M.clamp(st.intensity / Math.max(1e-6, minI), 0, 1);
-    if (frac > 0.01) {
+    if (frac > 0.01 && pw > 0.5) {
       ctx.lineWidth = 3.4;
-      ctx.strokeStyle = S.toCSS(lit ? wantCol : { r: 1, g: 0.8, b: 0.35 }, 0.95);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = S.toCSS(lit ? gotCol : { r: 1, g: 0.8, b: 0.35 }, 0.95);
       ctx.beginPath();
-      ctx.arc(0, 0, R + 3, -Math.PI / 2, -Math.PI / 2 + M.TAU * frac);
+      ctx.arc(0, 0, R0 * 1.08 + 4, -Math.PI / 2, -Math.PI / 2 + M.TAU * frac);
       ctx.stroke();
     }
-
-    /* Glint on the dome. */
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.beginPath();
-    ctx.ellipse(-R * 0.34, -R * 0.4, R * 0.26, R * 0.14, -0.6, 0, M.TAU);
-    ctx.fill();
 
     if (r.colorblind && req.color && req.color !== 'any') {
       var sig = S.colorSignature(wantCol);
-      ctx.font = '700 ' + Math.round(R * 0.8) + 'px system-ui, sans-serif';
+      ctx.font = '700 ' + Math.round(R0 * 0.62) + 'px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = lit ? '#0b0f18' : '#dfe8f5';
       textAt(ctx, r, sig.glyph, 0, 0);
     }
     if (req.wavelength) {
-      ctx.font = '600 ' + Math.round(Math.max(12, 11 * worldPerCss(r))) + 'px system-ui, sans-serif';
+      ctx.font = '600 ' + Math.round(Math.max(12, 11 * wpc)) + 'px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(255,240,215,0.9)';
-      textAt(ctx, r, req.wavelength + 'nm', 0, R + Math.max(20, 15 * worldPerCss(r)));
+      textAt(ctx, r, req.wavelength + 'nm', 0, R0 + Math.max(20, 15 * wpc));
     }
     if (st.latched) {
-      /* A timed level's sensor whose phase is done: a green pilot lamp on
-       * the housing says it no longer needs light. */
-      var lr = Math.max(6, 5 * worldPerCss(r));
-      var lpx = R * 0.78, lpy = -R * 0.78;
+      /* A timed level's destination whose phase is done: a green pilot lamp. */
+      var lr = Math.max(6, 5 * wpc);
+      var lpx = R0 * 0.8, lpy = R0 * 0.8;
       ctx.globalCompositeOperation = 'lighter';
       var lg = ctx.createRadialGradient(lpx, lpy, 0, lpx, lpy, lr * 3);
       lg.addColorStop(0, 'rgba(120,255,150,0.75)');
@@ -1602,6 +1869,147 @@
       ctx.fillStyle = '#9dffb4'; ctx.fill();
       ctx.lineWidth = 1.5; ctx.strokeStyle = '#1b3a22'; ctx.stroke();
     }
+    ctx.restore();
+
+    if (lit) drawEntryGlints(r, ctx, el, state);
+    drawFlag(r, ctx, el, lit, gotCol);
+  }
+
+  /** Where light enters a lit destination, the glass flares. */
+  function drawEntryGlints(r, ctx, el, state) {
+    var res = state && state.scene && state.scene.lastResult;
+    var dep = res && res.deposits[el.id];
+    if (!dep || !dep.hitPoints || !dep.hitPoints.length) return;
+    var hits = dep.hitPoints.slice().sort(function (a, b) { return b.i - a.i; }).slice(0, 2);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (var i = 0; i < hits.length; i++) {
+      glint(ctx, hits[i].p.x, hits[i].p.y, 9 + expose(hits[i].i) * 15, 0.85);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The flag that marks a destination. It stands up on screen whichever way
+   * the stage is turned, hangs slack while the destination waits, and flies --
+   * lit by the light that reached it -- once it is satisfied.
+   */
+  function drawFlag(r, ctx, el, lit, col) {
+    var R0 = el.radius, t = r.time;
+    var k = Math.max(1, worldPerCss(r) * 0.8);
+    ctx.save();
+    ctx.translate(el.x, el.y);
+    if (r.view.rot) ctx.rotate(-Math.PI / 2);
+
+    var base = -R0 * 0.12;
+    var top = -(R0 * 1.15 + 36 * k);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 3.4 * k;
+    ctx.strokeStyle = 'rgba(16,12,10,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(0.8 * k, base);
+    ctx.lineTo(0.8 * k, top);
+    ctx.stroke();
+    ctx.lineWidth = 1.9 * k;
+    ctx.strokeStyle = '#eef1f5';
+    ctx.beginPath();
+    ctx.moveTo(0, base);
+    ctx.lineTo(0, top);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, top - 1.5 * k, 2.6 * k, 0, M.TAU);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    /* The cloth: a pennant whose free end waves -- lazily until the light
+     * arrives, briskly after. */
+    var fw = 30 * k + R0 * 0.3, fh = 18 * k + R0 * 0.12;
+    var speed = lit ? 7.5 : 1.5, amp = (lit ? 3.4 : 1.2) * k;
+    var ph = t * speed + el.x * 0.013 + el.y * 0.007;
+    var w1 = Math.sin(ph) * amp, w2 = Math.sin(ph - 1.3) * amp * 1.4, w3 = Math.sin(ph - 2.5) * amp * 1.9;
+    var y0 = top + 1.2 * k;
+    function cloth() {
+      ctx.beginPath();
+      ctx.moveTo(0, y0);
+      ctx.bezierCurveTo(fw * 0.33, y0 + w1, fw * 0.66, y0 + w2 - fh * 0.04, fw, y0 + fh * 0.34 + w3);
+      ctx.bezierCurveTo(fw * 0.68, y0 + fh * 0.62 + w2, fw * 0.34, y0 + fh + w1 * 0.6, 0, y0 + fh);
+      ctx.closePath();
+    }
+    if (lit) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      var halo = ctx.createRadialGradient(fw * 0.4, y0 + fh * 0.5, 2, fw * 0.4, y0 + fh * 0.5, fw * 1.2);
+      halo.addColorStop(0, 'rgba(255,90,70,0.35)');
+      halo.addColorStop(1, 'rgba(255,90,70,0)');
+      ctx.fillStyle = halo;
+      ctx.fillRect(-fw, y0 - fw, fw * 3, fw * 3);
+      ctx.restore();
+    }
+    cloth();
+    var cg = ctx.createLinearGradient(0, y0, fw, y0 + fh);
+    cg.addColorStop(0, lit ? '#ff5b46' : '#d63a2c');
+    cg.addColorStop(1, lit ? '#c2200f' : '#8c1b12');
+    ctx.fillStyle = cg;
+    ctx.fill();
+    /* Folds: light on the crests, shade in the troughs. */
+    ctx.save();
+    cloth();
+    ctx.clip();
+    for (var f = 0; f < 3; f++) {
+      var fx = fw * (0.22 + f * 0.28);
+      var crest = Math.sin(ph - f * 1.25);
+      ctx.fillStyle = crest > 0 ? 'rgba(255,255,255,' + (0.14 * crest) + ')' : 'rgba(40,0,0,' + (-0.2 * crest) + ')';
+      ctx.fillRect(fx - fw * 0.1, y0 - fh, fw * 0.2, fh * 3);
+    }
+    ctx.restore();
+    cloth();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(70,6,4,0.55)';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** A tripwire: smoked glass with red rings, and no flag -- never a destination. */
+  function drawAlarm(r, ctx, el, st) {
+    var R0 = el.radius, tripped = !st.lit;
+    ctx.save();
+    ctx.translate(el.x, el.y);
+    ctx.save();
+    shadowOn(ctx, r, 0.5, 1.1);
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 1.08, 0, M.TAU);
+    var body = ctx.createRadialGradient(-R0 * 0.35, -R0 * 0.4, R0 * 0.05, 0, 0, R0 * 1.08);
+    body.addColorStop(0, 'rgba(70,24,22,0.8)');
+    body.addColorStop(1, 'rgba(10,3,3,0.92)');
+    ctx.fillStyle = body;
+    ctx.fill();
+    shadowOff(ctx);
+    ctx.restore();
+    var pulse = tripped ? 0.65 + 0.35 * Math.sin(r.time * 10) : 0.45;
+    ctx.lineWidth = 2.6;
+    ctx.strokeStyle = 'rgba(255,70,55,' + pulse + ')';
+    ctx.beginPath(); ctx.arc(0, 0, R0 * 0.72, 0, M.TAU); ctx.stroke();
+    ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.arc(0, 0, R0 * 0.42, 0, M.TAU); ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, R0 * 1.08, 0, M.TAU);
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = tripped ? 'rgba(255,110,95,0.9)' : 'rgba(255,190,180,0.45)';
+    ctx.stroke();
+    if (tripped) {
+      ctx.globalCompositeOperation = 'lighter';
+      var ag = ctx.createRadialGradient(0, 0, 0, 0, 0, R0 * 2.4);
+      ag.addColorStop(0, 'rgba(255,60,50,0.45)');
+      ag.addColorStop(1, 'rgba(255,60,50,0)');
+      ctx.fillStyle = ag;
+      ctx.beginPath(); ctx.arc(0, 0, R0 * 2.4, 0, M.TAU); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.font = '700 ' + Math.round(Math.max(15, 13 * worldPerCss(r))) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = tripped ? '#ffb0a6' : 'rgba(230,170,165,0.9)';
+    textAt(ctx, r, tripped ? '!' : '∅', 0, 0);
     ctx.restore();
   }
 
@@ -1641,6 +2049,14 @@
    * lies flush with the table, which is why light passes straight over it.
    */
   function drawSocket(r, ctx, el, scene) {
+    /* A later phase's sensor that shares its spot with a live one is hidden
+     * under it: no socket, and no tag across the live one's flag. */
+    if (el.type === 'receiver') {
+      for (var i = 0; i < scene.receivers.length; i++) {
+        var o = scene.receivers[i];
+        if (o !== el && !o.disabled && Math.abs(o.x - el.x) < 8 && Math.abs(o.y - el.y) < 8) return;
+      }
+    }
     ctx.save();
     if (el.type === 'receiver') {
       var R0 = el.radius + 7;

@@ -206,7 +206,26 @@ function makeScene(defs, emitters, receivers, extra) {
     const nBlue = Mat.iorAt('flint', wls[0]);
     const nRed = Mat.iorAt('flint', wls[8]);
     ok('n(blue) > n(red) for flint', nBlue > nRed, `${nBlue.toFixed(4)} vs ${nRed.toFixed(4)}`);
+    ok('game glass fans a rainbow wide enough to see', fanDeg > 12, fanDeg.toFixed(2) + ' degrees');
   }
+
+  /* The game's glass: Cauchy's law with the spread between colours multiplied,
+   * anchored at violet so no colour's index ever rises above the real one. */
+  (function () {
+    const F = Mat.MATERIALS.flint;
+    const real = nm => F.A + F.B / Math.pow(nm / 1000, 2);
+    ok('violet keeps its real Cauchy index', Math.abs(Mat.iorAt('flint', 400) - real(400)) < 1e-12);
+    let risesAbove = false, widens = true;
+    for (let nm = 410; nm <= 700; nm += 10) {
+      if (Mat.iorAt('flint', nm) > real(nm) + 1e-12) risesAbove = true;
+      const realGap = real(400) - real(nm), gameGap = Mat.iorAt('flint', 400) - Mat.iorAt('flint', nm);
+      if (Math.abs(gameGap - Mat.SPREAD * realGap) > 1e-9) widens = false;
+    }
+    ok('no colour index rises above the real one', !risesAbove);
+    ok('the gap to violet is exactly SPREAD times the real gap', widens, 'SPREAD=' + Mat.SPREAD);
+    ok('unsplit white light keeps the catalogue index at 589nm',
+       Math.abs(Mat.iorAt('flint', null) - real(589)) < 1e-12);
+  })();
 
   /* Each band must then behave independently: put a red filter downstream and
    * only the red end of the spectrum should survive. */

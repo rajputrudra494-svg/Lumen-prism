@@ -127,6 +127,16 @@ independent rays — you can pick one out of the fan with a mirror, or filter th
 rest away. Flint glass (`B = 0.00743`) throws a visibly wider spectrum than
 crown (`B = 0.00420`), and the game uses that difference.
 
+**Game glass is more dispersive than real glass.** Real flint spreads white
+light over a few degrees, a rainbow too thin to see across a table, let alone to
+aim at. Every colour's index is pulled further from violet's by a constant
+factor of four, `n(λ) = n_violet + 4·B·(1/λ² − 1/0.4²)`, so a prism throws a fan
+about twice as wide — wide enough to read as a rainbow, as in the reference
+art the game is styled after. It is still Cauchy's law, just for a glass that
+does not exist. The anchor at violet is deliberate: no colour's index goes up,
+so nothing that used to leave a prism is newly trapped inside it by total
+internal reflection. White light that is not split keeps its catalogue index.
+
 **Beam splitting.** A half-silvered plate produces a reflected and a transmitted
 child with the energy divided by its ratio, which the player can dial.
 
@@ -217,18 +227,44 @@ splash where it strikes something, and the spill from each lamp's lens. That
 map is blurred and multiplied over the table, so the wood is only as bright as
 the light reaching it — a beam visibly lights up the boards it crosses.
 
-**Beams are drawn as scattered light**, not lines: a crisp core, a halo, and a
-scattering shaft that widens with distance, plus dust motes that glint only
-where a beam passes through them. Scattering strength follows the chapter's fog
+**Beams are drawn as scattered light**, not lines: a broad band of haze that
+widens with distance around a brighter heart and a crisp core, dust motes that
+glint only where a beam passes through them, and a film grain punched out of
+the light so it reads as textured haze rather than flat colour. A dispersed
+beam is drawn as **one continuous rainbow**: each of its nine colours is paired
+with its neighbour — same surface, same bounce, heading the same way — and the
+sheet of light between them is filled in, so a prism throws a solid spectrum
+rather than nine thin rays. Scattering strength follows the chapter's fog
 coefficient — the same number the tracer attenuates by — so a room where you
 can see more of the beam from the side really is a room that costs more light.
 Strong beams are tone-mapped (`1 − e^(−1.2 I)`) so several lamps on one path
 glow rather than burn out to flat white.
 
+**Glass catches the light.** Prisms, lenses and glass blocks are drawn almost
+clear, denser toward their faces, with faint cut-crystal facets, a red-and-blue
+chromatic fringe at the edges, and — over the beams, so they read even in a
+bright rainbow — glowing white edges and corners that twinkle. Portals are orbs
+of dark glass ringed by their own rainbow with a slowly breathing white heart.
+
+**Destinations fly a flag.** Every sensor that wants light is a glass disc with
+concentric target rings and a red flag on a pole. The flag always stands up on
+screen, even when a phone turns the stage sideways; it hangs slack while the
+destination waits and flies once it is satisfied, the disc glowing in the colour
+that arrived and flaring where the light enters it. A colour the destination
+wants tints its inner ring. Alarms are smoked red glass with no flag, because
+they are never where the light should go.
+
 **This is rendering, not physics.** The tracer still decides exactly where each
 ray goes and how much energy reaches each sensor; what lights a sensor is always
-the crisp core, never the glow around it. That is why every level still verifies
-unchanged.
+the crisp core, never the glow around it — which is why the broad bands and
+filled-in rainbows change nothing a level asks of you.
+
+**Wood everywhere.** The table sits in a mitred wooden frame on a plank floor,
+and every panel, button, card and menu of the interface is cut from the same
+kind of planks — grown at start-up by the same code as the tabletop and handed
+to the stylesheet as data URLs, so there are still no image files. The room,
+frame and tabletop are painted once per chapter and screen size into a cached
+canvas and copied each frame, so all that wood costs nothing while you play.
 
 Hardware is drawn as the real thing: silvered glass whose reflected highlight
 slides as the mirror turns, brass cap screws, black anodised clamps and ring
@@ -347,7 +383,7 @@ tools with no shim and no build.
 ## Tests
 
 ```bash
-node tools/test-optics.js    # 137 physics assertions
+node tools/test-optics.js    # 142 physics assertions
 node tools/verify.js         # every level is solvable
 node tools/test-content.js   # dailies, share round trips, editor, timed-level rules, difficulty proofs
 node tools/test-relay.js     # multiplayer protocol (needs the relay running)
@@ -644,9 +680,12 @@ Stated plainly, because they are design decisions rather than oversights:
 - **Clip export produces WebM, not GIF.** Browsers have no native GIF encoder
   and bundling one was not worth the weight; where `MediaRecorder` is
   unavailable the export falls back to a PNG still and says so.
-- **The scattering, light pools and dust are visual.** Emitters do not
-  physically spread into a cone; doing so would change the energy reaching every
-  sensor. The core ray is what the physics follows.
+- **The scattering, light pools, filled-in rainbows and dust are visual.**
+  Emitters do not physically spread into a cone, and the rainbow between two
+  colours carries no energy of its own; the nine band rays are what the physics
+  follows.
+- **Glass is about four times as dispersive as real flint**, on purpose, so a
+  rainbow is wide enough to see and to aim at.
 - **The world is a fixed 1600×900.** Portrait phones turn it sideways, except on
   pendulum levels, which letterbox and suggest landscape.
 - **Multiplayer trusts its peers**, as described above.

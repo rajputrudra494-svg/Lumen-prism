@@ -13,6 +13,20 @@
  * glass has roughly twice the B of crown glass, so the "flint prism" element
  * produces a visibly fatter spectrum than the "crown prism" -- a real
  * difference the player can exploit in later levels.
+ *
+ * GAME GLASS IS MORE DISPERSIVE THAN REAL GLASS. Real flint spreads white light
+ * over a few degrees -- a rainbow too thin to see across a table, let alone
+ * aim at. Every colour's index here is pulled further from violet's by a
+ * constant factor (SPREAD), so a prism throws a fan roughly twice as wide:
+ *
+ *       n(lambda) = n_violet + SPREAD * B * (1/lambda^2 - 1/0.4^2)
+ *
+ * It is still Cauchy's law -- blue always bends more than red, by an amount
+ * that grows with B -- just for a glass that does not exist. Anchoring at the
+ * violet end is deliberate: no colour's index rises, so no beam that escaped
+ * a prism before is now trapped inside it by total internal reflection.
+ * White light that is not split (`disperse: false`) keeps the catalogue index
+ * at the sodium D-line.
  * ========================================================================== */
 (function (LP) {
   'use strict';
@@ -22,6 +36,10 @@
    *           material (Beer-Lambert: I = I0 * exp(-absorb * distance)).
    * reflect - fraction of intensity a mirrored surface returns.
    */
+  /* How many times wider than Cauchy's real spread a spectrum fans out. */
+  var SPREAD = 4.0;
+  var VIOLET_UM2 = 0.4 * 0.4;
+
   var MATERIALS = {
     air:        { name: 'Air',          A: 1.0002,  B: 0.0,      absorb: 0.0,      reflect: 0 },
     water:      { name: 'Water',        A: 1.3200,  B: 0.00340,  absorb: 0.00022,  reflect: 0 },
@@ -46,9 +64,12 @@
   function iorAt(mat, wavelength) {
     var m = (typeof mat === 'string') ? MATERIALS[mat] : mat;
     if (!m) return 1.0;
-    var nm = (wavelength === null || wavelength === undefined) ? 589 : wavelength;
-    var um = nm / 1000;                 /* Cauchy wants micrometres */
-    return m.A + m.B / (um * um);
+    if (wavelength === null || wavelength === undefined) {
+      var d = 0.589;                    /* Cauchy wants micrometres */
+      return m.A + m.B / (d * d);
+    }
+    var um = wavelength / 1000;
+    return m.A + m.B / VIOLET_UM2 + SPREAD * m.B * (1 / (um * um) - 1 / VIOLET_UM2);
   }
 
   /** True when the material spreads wavelengths enough to be worth splitting. */
@@ -95,6 +116,7 @@
 
   LP.Materials = {
     MATERIALS: MATERIALS,
+    SPREAD: SPREAD,
     get: get,
     iorAt: iorAt,
     isDispersive: isDispersive,
